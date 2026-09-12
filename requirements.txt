@@ -1,0 +1,4 @@
+# No hard dependencies -- the kernel is stdlib only.
+# numpy is optional and powers EchoStateReservoir alone:
+#     pip install "dgk[reservoir]"
+# pytest is needed to run the test suite.
