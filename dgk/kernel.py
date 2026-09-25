@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import os
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .audit import AuditTrailWAL
 from .interceptors import ContentFilterInterceptor, InterceptorRegistry, RequestNormalizer, RuntimeBoundaryBarrier
@@ -21,7 +22,13 @@ from .taxonomy import OperationProvenance, TelemetryMetricsPayload
 # ============================================================
 class GovernanceOrchestrationKernel:
     """Consolidates interceptors, block stores, and stability planes into a single source of truth."""
-    def __init__(self, log_path: str = "/tmp/gov4_central_ssot.log") -> None:
+    def __init__(self, log_path: Optional[str] = None) -> None:
+        # No shared default: the old /tmp/gov4_central_ssot.log was readable
+        # and pre-creatable by any local user. The caller (or DGK_AUDIT_LOG)
+        # must choose where the audit trail lives.
+        log_path = log_path or os.environ.get("DGK_AUDIT_LOG")
+        if not log_path:
+            raise ValueError("pass log_path= or set DGK_AUDIT_LOG")
         self.audit_logger = AuditTrailWAL(log_path)
         self.ledger_store = PartitionedEventStore()
         self.state_reducer = CoreGovernanceReducer()

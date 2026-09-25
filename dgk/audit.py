@@ -17,7 +17,12 @@ class AuditTrailWAL:
         self.storage_path = storage_path
         if os.path.dirname(storage_path):
             os.makedirs(os.path.dirname(storage_path), exist_ok=True)
-        self.file_descriptor = open(storage_path, "a+", encoding="utf-8", buffering=1)
+        # Owner-only permissions, and refuse to follow a symlink planted at
+        # the path, so another local user cannot read the trail or redirect
+        # the writes into a file of their choosing.
+        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(storage_path, flags, 0o600)
+        self.file_descriptor = os.fdopen(fd, "a+", encoding="utf-8", buffering=1)
 
     def append_record(self, record: Dict[str, Any]) -> None:
         self.file_descriptor.write(canonicalize_dictionary(record) + "\n")
