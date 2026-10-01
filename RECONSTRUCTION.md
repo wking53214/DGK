@@ -106,7 +106,9 @@ The API gateway section instantiated `GovernanceOrchestrationKernel()` at module
 scope, which opened a write-ahead log at `/tmp/gov4_central_ssot.log` merely on
 import — before any caller had chosen a log path. That section is not part of
 the package; the kernel is constructed by the caller, and the demo uses a
-temporary directory.
+temporary directory. The kernel itself has no default path either: `log_path`
+(or `DGK_AUDIT_LOG`) is required, and the log is created owner-only (0600) and
+refuses to follow a symlink at that path.
 
 ## Structure
 
@@ -132,7 +134,8 @@ Two characteristics are pinned by tests as observed rather than endorsed:
 
 ## Verification
 
-- 38 tests pass, including regressions for all three logic defects.
+- 43 tests pass, including regressions for all three logic defects and five
+  that pin the audit log's location and permissions.
 - The demo runs end to end: a transaction commits with a hash-chained ledger
   entry, a forbidden one is rejected with nothing written to the ledger or the
   audit log, and the log replays.

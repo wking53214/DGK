@@ -58,7 +58,7 @@ alone; `pytest` is needed for the tests.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 33 tests
+python3 -m pytest tests/ -q           # 43 tests
 ```
 
 ```python
