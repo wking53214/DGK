@@ -371,3 +371,58 @@ def test_energy_is_zero_when_no_baseline_spread_exists():
     from dgk import LyapunovWeightConfig, calculate_lyapunov_state_energy
     flat = {k: (0.0, 0.0) for k in ("latency", "abort", "reentry", "load", "determinism")}
     assert calculate_lyapunov_state_energy(CALM, flat, LyapunovWeightConfig()) == 0.0
+
+
+# --------------------------------------------------------------------------
+# Audit log location and permissions
+# --------------------------------------------------------------------------
+# The kernel used to default its log to a fixed path in /tmp. These pin the
+# replacement: the caller must choose the path, and the file is private.
+
+def test_kernel_requires_a_log_path(monkeypatch):
+    monkeypatch.delenv("DGK_AUDIT_LOG", raising=False)
+    with pytest.raises(ValueError, match="DGK_AUDIT_LOG"):
+        GovernanceOrchestrationKernel()
+
+
+def test_kernel_reads_the_log_path_from_the_environment(monkeypatch, tmp_path):
+    path = tmp_path / "env.log"
+    monkeypatch.setenv("DGK_AUDIT_LOG", str(path))
+    kernel = GovernanceOrchestrationKernel()
+    try:
+        assert path.exists()
+    finally:
+        kernel.audit_logger.close_stream()
+
+
+def test_an_explicit_log_path_wins_over_the_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("DGK_AUDIT_LOG", str(tmp_path / "env.log"))
+    explicit = tmp_path / "explicit.log"
+    kernel = GovernanceOrchestrationKernel(log_path=str(explicit))
+    try:
+        assert explicit.exists()
+        assert not (tmp_path / "env.log").exists()
+    finally:
+        kernel.audit_logger.close_stream()
+
+
+def test_a_new_audit_log_is_owner_only(tmp_path):
+    path = tmp_path / "private.log"
+    wal = AuditTrailWAL(str(path))
+    wal.close_stream()
+    if os.name == "posix":
+        assert (os.stat(path).st_mode & 0o777) == 0o600
+
+
+def test_the_audit_log_refuses_to_follow_a_planted_symlink(tmp_path):
+    # A local attacker pre-creates a symlink at the log path to redirect the
+    # kernel's writes into a file they chose. O_NOFOLLOW must refuse it.
+    if os.name != "posix" or not hasattr(os, "O_NOFOLLOW"):
+        return
+    target = tmp_path / "attacker_target.txt"
+    target.write_text("untouched")
+    link = tmp_path / "audit.log"
+    os.symlink(target, link)
+    with pytest.raises(OSError):
+        AuditTrailWAL(str(link))
+    assert target.read_text() == "untouched"
