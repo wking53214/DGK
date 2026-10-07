@@ -7,6 +7,7 @@ name = "dgk"
 version = "4.0.0"
 description = "Distributed Governance Control Engine - hash-chained event ledger, perimeter interceptors, and control-theory regime classification"
 requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
 dependencies = []
 
 [project.optional-dependencies]
