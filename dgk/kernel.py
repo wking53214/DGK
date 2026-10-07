@@ -27,7 +27,7 @@ from .taxonomy import Provenance, TelemetryReading
 # GOVERNANCE CENTRAL KERNEL CONCURRENCY ENGINE
 # ============================================================
 class Kernel:
-    """Consolidates interceptors, block stores, and stability planes into a single source of truth."""
+    """Combines the rule checks, the ledger, and the stability tracker in one place."""
 
     def __init__(self, log_path: Optional[str] = None) -> None:
         # No shared default: the old /tmp/gov4_central_ssot.log was readable
@@ -91,7 +91,9 @@ class Kernel:
         if not transition_verified:
             return {
                 "transaction_status": "REJECTED",
-                "exception_details": f"Manifest contract breached: {invariant_breaches}",
+                "exception_details": (
+                    f"Manifest contract breached: {invariant_breaches}"
+                ),
             }
 
         committed_block, blockchain_head_hash = self.ledger_store.append_event(

@@ -22,7 +22,7 @@ except BaseException:  # pragma: no cover - environment dependent
 # STOCHASTIC TELEMETRY ANALYSIS & CONTROL THEORY ENERGY
 # ============================================================
 class RunningStats:
-    """Tracks stable running data stats using numerically guarded online calculations."""
+    """Running mean and standard deviation, updated one sample at a time."""
 
     def __init__(self) -> None:
         self.sample_count = 0
@@ -42,7 +42,7 @@ class RunningStats:
 
 
 class ThreadSafeStats:
-    """Orchestrates asynchronous statistical updates across operational runtime paths."""
+    """Holds one running statistics tracker per telemetry metric, behind a lock."""
 
     def __init__(self) -> None:
         self.mutex_lock = Lock()
@@ -99,7 +99,7 @@ def calculate_deviation_score(
     stats: Dict[str, Tuple[float, float]],
     configuration: EnergyWeights,
 ) -> float:
-    """Constructs dynamic quadratic bounds tracking system stability variance deviations."""
+    """Scores how far the latest reading sits from the recent baseline."""
 
     def resolve_z_score(value, mean, std_dev):
         # With no established spread there is no basis for a z-score. The

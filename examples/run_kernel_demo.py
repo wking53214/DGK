@@ -18,7 +18,10 @@ TELEMETRY = {
     "load_depth": 280.0,
     "determinism_index": 0.998,
 }
-JARGON = "We are utilizing holistic paradigms to operationalize granular and suboptimal systems."
+JARGON = (
+    "We are utilizing holistic paradigms to operationalize "
+    "granular and suboptimal systems."
+)
 PARTITION = "region-us-east-production"
 
 

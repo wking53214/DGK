@@ -45,7 +45,7 @@ def compute_scaled_thresholds(
 
 
 def split_text_segments(text: str) -> List[str]:
-    """Segments processing texts along natural syntax boundaries and line terminators."""
+    """Splits text into segments at line breaks and sentence ends."""
     raw_fragments = re.split(r"\n+|(?<=[.!?])\s+", text)
     compiled_segments = []
     working_buffer = []

@@ -39,7 +39,7 @@ class Sha256Chain(HashChainStrategy):
 
 
 class EventStore:
-    """Append-only block ledger storing sequential state changes per entity partition."""
+    """An append-only, hash-chained event store, kept separately per partition."""
 
     def __init__(self, hashing_strategy: Optional[HashChainStrategy] = None):
         self._partition_streams: Dict[str, List[Event]] = {}
@@ -115,19 +115,20 @@ class InvariantSet:
 def check_escalation_invariant(
     before: Mapping[str, Any], event: Event, after: Mapping[str, Any]
 ) -> Tuple[bool, str]:
-    """Safety Invariant: Verifies that status changes to CRITICAL generate audit trails."""
+    """Safety invariant: a CRITICAL status must have a logged escalation."""
     if after.get("system_status") == "CRITICAL" and not after.get(
         "escalation_logged", False
     ):
         return (
             False,
-            "Transition Constraint Violation: Critical state reached without accompanying escalation entry.",
+            "Transition constraint violation: critical state reached without "
+            "an escalation entry.",
         )
     return True, "OK"
 
 
 class TransitionChecker:
-    """Simulates transformations to audit candidate blocks against runtime invariants."""
+    """Simulates a transition and checks it against the invariants before commit."""
 
     def __init__(self, manifest: InvariantSet, reducer: Reducer) -> None:
         self._manifest = manifest
@@ -161,7 +162,7 @@ class EveryNEventsPolicy(SnapshotPolicy):
 
 
 class StateMaterializer:
-    """Tracks system states by combining cached historical checkpoints and delta updates."""
+    """Rebuilds the current state from events, using cached snapshots where possible."""
 
     def __init__(
         self,
