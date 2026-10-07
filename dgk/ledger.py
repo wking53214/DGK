@@ -8,19 +8,19 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Tuple
 
-from .taxonomy import NormalizedEvent, OperationProvenance, StateSnapshot
+from .taxonomy import Event, Provenance, Snapshot
 
 
 # CRYPTOGRAPHICALLY TAMPER-EVIDENT EVENT STORAGE LEDGER
 # ============================================================
-class CryptographicHashChainStrategy(Protocol):
-    def compute_hash(self, previous_hash: str, event: NormalizedEvent) -> str: ...
+class HashChainStrategy(Protocol):
+    def compute_hash(self, previous_hash: str, event: Event) -> str: ...
 
 
-class SHA256EventChaining(CryptographicHashChainStrategy):
+class Sha256Chain(HashChainStrategy):
     """Computes SHA-256 signatures over sequential state mutation matrices."""
 
-    def compute_hash(self, previous_hash: str, event: NormalizedEvent) -> str:
+    def compute_hash(self, previous_hash: str, event: Event) -> str:
         payload = {
             "previous_hash": previous_hash,
             "event_id": event.event_id,
@@ -38,27 +38,25 @@ class SHA256EventChaining(CryptographicHashChainStrategy):
         return hashlib.sha256(serialized_payload).hexdigest()
 
 
-class PartitionedEventStore:
+class EventStore:
     """Append-only block ledger storing sequential state changes per entity partition."""
 
-    def __init__(
-        self, hashing_strategy: Optional[CryptographicHashChainStrategy] = None
-    ):
-        self._partition_streams: Dict[str, List[NormalizedEvent]] = {}
+    def __init__(self, hashing_strategy: Optional[HashChainStrategy] = None):
+        self._partition_streams: Dict[str, List[Event]] = {}
         self._partition_heads: Dict[str, str] = {}
-        self._hashing_strategy = hashing_strategy or SHA256EventChaining()
+        self._hashing_strategy = hashing_strategy or Sha256Chain()
 
     def append_event(
         self,
         entity_id: str,
         event_type: str,
         delta: Dict[str, Any],
-        provenance: OperationProvenance,
-    ) -> Tuple[NormalizedEvent, str]:
+        provenance: Provenance,
+    ) -> Tuple[Event, str]:
         stream = self._partition_streams.setdefault(entity_id, [])
         next_sequence_no = len(stream) + 1
 
-        event_instance = NormalizedEvent(
+        event_instance = Event(
             event_id=str(uuid.uuid4()),
             entity_id=entity_id,
             sequence_no=next_sequence_no,
@@ -76,9 +74,7 @@ class PartitionedEventStore:
         self._partition_heads[entity_id] = computed_hash
         return event_instance, computed_hash
 
-    def get_events_since(
-        self, entity_id: str, sequence_no: int
-    ) -> List[NormalizedEvent]:
+    def get_events_since(self, entity_id: str, sequence_no: int) -> List[Event]:
         stream = self._partition_streams.get(entity_id, [])
         return [event for event in stream if event.sequence_no > sequence_no]
 
@@ -86,18 +82,16 @@ class PartitionedEventStore:
 # ============================================================
 # STATE PROJECTION REDUCERS & AUDIT PIPELINES
 # ============================================================
-class StateStreamReducer(Protocol):
+class Reducer(Protocol):
     def apply_transition(
-        self, context: Dict[str, Any], event: NormalizedEvent
+        self, context: Dict[str, Any], event: Event
     ) -> Dict[str, Any]: ...
 
 
-class CoreGovernanceReducer:
+class StateReducer:
     """Folds sequential transactional changes to yield updated state models."""
 
-    def apply_transition(
-        self, context: Dict[str, Any], event: NormalizedEvent
-    ) -> Dict[str, Any]:
+    def apply_transition(self, context: Dict[str, Any], event: Event) -> Dict[str, Any]:
         mutated_state = copy.deepcopy(context)
         if event.event_type == "telemetry_update":
             mutated_state["metrics"] = event.delta
@@ -109,19 +103,17 @@ class CoreGovernanceReducer:
 
 
 @dataclass(frozen=True)
-class ValidationManifest:
+class InvariantSet:
     manifest_id: str
     manifest_version: str
     invariants: Dict[
         str,
-        Callable[
-            [Mapping[str, Any], NormalizedEvent, Mapping[str, Any]], Tuple[bool, str]
-        ],
+        Callable[[Mapping[str, Any], Event, Mapping[str, Any]], Tuple[bool, str]],
     ] = field(default_factory=dict)
 
 
-def verify_critical_escalation_constraint(
-    before: Mapping[str, Any], event: NormalizedEvent, after: Mapping[str, Any]
+def check_escalation_invariant(
+    before: Mapping[str, Any], event: Event, after: Mapping[str, Any]
 ) -> Tuple[bool, str]:
     """Safety Invariant: Verifies that status changes to CRITICAL generate audit trails."""
     if after.get("system_status") == "CRITICAL" and not after.get(
@@ -134,17 +126,15 @@ def verify_critical_escalation_constraint(
     return True, "OK"
 
 
-class StateTransitionAuditor:
+class TransitionChecker:
     """Simulates transformations to audit candidate blocks against runtime invariants."""
 
-    def __init__(
-        self, manifest: ValidationManifest, reducer: StateStreamReducer
-    ) -> None:
+    def __init__(self, manifest: InvariantSet, reducer: Reducer) -> None:
         self._manifest = manifest
         self._reducer = reducer
 
     def verify_transition(
-        self, before: Dict[str, Any], event: NormalizedEvent
+        self, before: Dict[str, Any], event: Event
     ) -> Tuple[bool, List[str]]:
         simulated_state = self._reducer.apply_transition(before, event)
         before_view = MappingProxyType(before)
@@ -158,11 +148,11 @@ class StateTransitionAuditor:
         return len(transition_errors) == 0, transition_errors
 
 
-class CheckpointPolicy(Protocol):
+class SnapshotPolicy(Protocol):
     def should_create_snapshot(self, event_delta: int) -> bool: ...
 
 
-class UniformIntervalSnapshotPolicy(CheckpointPolicy):
+class EveryNEventsPolicy(SnapshotPolicy):
     def __init__(self, interval_limit: int):
         self._interval_limit = interval_limit
 
@@ -170,24 +160,24 @@ class UniformIntervalSnapshotPolicy(CheckpointPolicy):
         return event_delta >= self._interval_limit
 
 
-class MaterializationRuntime:
+class StateMaterializer:
     """Tracks system states by combining cached historical checkpoints and delta updates."""
 
     def __init__(
         self,
-        store: PartitionedEventStore,
-        reducer: StateStreamReducer,
-        policy: CheckpointPolicy = UniformIntervalSnapshotPolicy(50),
+        store: EventStore,
+        reducer: Reducer,
+        policy: SnapshotPolicy = EveryNEventsPolicy(50),
     ) -> None:
         self._store = store
         self._reducer = reducer
         self._policy = policy
-        self._snapshot_cache: Dict[str, StateSnapshot] = {}
+        self._snapshot_cache: Dict[str, Snapshot] = {}
 
     def materialize_state(self, entity_id: str) -> Mapping[str, Any]:
         snapshot = self._snapshot_cache.get(
             entity_id,
-            StateSnapshot(entity_id=entity_id, last_sequence_no=0, context={}),
+            Snapshot(entity_id=entity_id, last_sequence_no=0, context={}),
         )
         running_context = copy.deepcopy(snapshot.context)
         unprocessed_events = self._store.get_events_since(
@@ -200,7 +190,7 @@ class MaterializationRuntime:
         if unprocessed_events and self._policy.should_create_snapshot(
             len(unprocessed_events)
         ):
-            self._snapshot_cache[entity_id] = StateSnapshot(
+            self._snapshot_cache[entity_id] = Snapshot(
                 entity_id=entity_id,
                 last_sequence_no=unprocessed_events[-1].sequence_no,
                 context=copy.deepcopy(running_context),

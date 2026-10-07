@@ -6,12 +6,12 @@ import json
 import os
 from typing import Any, Dict, List
 
-from .serialization import canonicalize_dictionary, filter_private_keys
+from .serialization import to_canonical_json, drop_private_fields
 
 
 # WRITE-AHEAD LOGGING AUDIT CHANNEL
 # ============================================================
-class AuditTrailWAL:
+class AuditLog:
     """Append-only transaction logger handling structural engine storage operations."""
 
     def __init__(self, storage_path: str):
@@ -26,7 +26,7 @@ class AuditTrailWAL:
         self.file_descriptor = os.fdopen(fd, "a+", encoding="utf-8", buffering=1)
 
     def append_record(self, record: Dict[str, Any]) -> None:
-        self.file_descriptor.write(canonicalize_dictionary(record) + "\n")
+        self.file_descriptor.write(to_canonical_json(record) + "\n")
 
     def close_stream(self) -> None:
         self.file_descriptor.close()
@@ -40,20 +40,18 @@ class AuditTrailWAL:
 # ============================================================
 # CRYPTOGRAPHIC SECURITY ATTESTATION
 # ============================================================
-def generate_hmac_signature(state: Dict[str, Any], secret_key: bytes) -> str:
+def sign_record(state: Dict[str, Any], secret_key: bytes) -> str:
     """Signs public dictionary state configurations via HMAC-SHA256."""
-    payload = canonicalize_dictionary(filter_private_keys(state)).encode()
+    payload = to_canonical_json(drop_private_fields(state)).encode()
     return hmac.new(secret_key, payload, hashlib.sha256).hexdigest()
 
 
-def verify_hmac_signature(state: Dict[str, Any], secret_key: bytes) -> bool:
+def verify_record(state: Dict[str, Any], secret_key: bytes) -> bool:
     """Verifies state authenticity using timing-attack safe comparison."""
     target_signature = state.get("_sig")
     if not target_signature:
         return False
-    return hmac.compare_digest(
-        target_signature, generate_hmac_signature(state, secret_key)
-    )
+    return hmac.compare_digest(target_signature, sign_record(state, secret_key))
 
 
 # ============================================================

@@ -4,29 +4,29 @@ import os
 import time
 from typing import Any, Dict, Optional
 
-from .audit import AuditTrailWAL
+from .audit import AuditLog
 from .interceptors import (
-    ContentFilterInterceptor,
-    InterceptorRegistry,
-    RequestNormalizer,
-    RuntimeBoundaryBarrier,
+    ForbiddenWordRule,
+    RuleRegistry,
+    RequestBuilder,
+    HealthLimitCheck,
 )
 from .ledger import (
-    CoreGovernanceReducer,
-    MaterializationRuntime,
-    PartitionedEventStore,
-    StateTransitionAuditor,
-    ValidationManifest,
-    verify_critical_escalation_constraint,
+    StateReducer,
+    StateMaterializer,
+    EventStore,
+    TransitionChecker,
+    InvariantSet,
+    check_escalation_invariant,
 )
-from .linguistics import LanguageNormalizer, LinguisticComplianceValidator
-from .stability import HysteresisControlChassis
-from .taxonomy import OperationProvenance, TelemetryMetricsPayload
+from .linguistics import TextNormalizer, TextChecker
+from .stability import RegimeTracker
+from .taxonomy import Provenance, TelemetryReading
 
 
 # GOVERNANCE CENTRAL KERNEL CONCURRENCY ENGINE
 # ============================================================
-class GovernanceOrchestrationKernel:
+class Kernel:
     """Consolidates interceptors, block stores, and stability planes into a single source of truth."""
 
     def __init__(self, log_path: Optional[str] = None) -> None:
@@ -36,28 +36,26 @@ class GovernanceOrchestrationKernel:
         log_path = log_path or os.environ.get("DGK_AUDIT_LOG")
         if not log_path:
             raise ValueError("pass log_path= or set DGK_AUDIT_LOG")
-        self.audit_logger = AuditTrailWAL(log_path)
-        self.ledger_store = PartitionedEventStore()
-        self.state_reducer = CoreGovernanceReducer()
-        self.materialization_runtime = MaterializationRuntime(
+        self.audit_logger = AuditLog(log_path)
+        self.ledger_store = EventStore()
+        self.state_reducer = StateReducer()
+        self.materialization_runtime = StateMaterializer(
             self.ledger_store, self.state_reducer
         )
-        self.linguistic_compliance_engine = LinguisticComplianceValidator()
-        self.text_normalizer = LanguageNormalizer()
-        self.hysteresis_chassis = HysteresisControlChassis()
+        self.linguistic_compliance_engine = TextChecker()
+        self.text_normalizer = TextNormalizer()
+        self.hysteresis_chassis = RegimeTracker()
 
-        self.interceptor_registry = InterceptorRegistry()
-        self.interceptor_registry.register(ContentFilterInterceptor())
-        self.boundary_barrier = RuntimeBoundaryBarrier()
+        self.interceptor_registry = RuleRegistry()
+        self.interceptor_registry.register(ForbiddenWordRule())
+        self.boundary_barrier = HealthLimitCheck()
 
-        core_validation_manifest = ValidationManifest(
+        core_validation_manifest = InvariantSet(
             manifest_id="CENTRAL_ORCHESTRATION_MANIFEST",
             manifest_version="v1.0",
-            invariants={
-                "verify_critical_escalation_constraint": verify_critical_escalation_constraint
-            },
+            invariants={"check_escalation_invariant": check_escalation_invariant},
         )
-        self.transition_auditor = StateTransitionAuditor(
+        self.transition_auditor = TransitionChecker(
             core_validation_manifest, self.state_reducer
         )
 
@@ -65,7 +63,7 @@ class GovernanceOrchestrationKernel:
         self, partition_id: str, telemetry_map: Dict[str, Any], text_payload: str
     ) -> Dict[str, Any]:
         # 1. Control-Theory Telemetry Profile Processing
-        telemetry = TelemetryMetricsPayload(
+        telemetry = TelemetryReading(
             latency=float(telemetry_map.get("latency", 0.0)),
             abort_rate=float(telemetry_map.get("abort_rate", 0.0)),
             reentry_rate=float(telemetry_map.get("reentry_rate", 0.0)),
@@ -75,12 +73,12 @@ class GovernanceOrchestrationKernel:
         stability_metrics = self.hysteresis_chassis.process_telemetry_step(telemetry)
         boundary_pass, boundary_faults = self.boundary_barrier.verify_bounds(telemetry)
 
-        # 2. Structural Interceptor Pipeline Routing
+        # 2. Structural Rule Pipeline Routing
         normalized_payload = {
             "text": text_payload,
             "messages": [{"role": "user", "content": text_payload}],
         }
-        governance_context = RequestNormalizer.normalize(normalized_payload)
+        governance_context = RequestBuilder.normalize(normalized_payload)
         perimeter_check = self.interceptor_registry.evaluate(governance_context)
 
         if not perimeter_check.passed:
@@ -94,13 +92,13 @@ class GovernanceOrchestrationKernel:
         active_state_view = dict(
             self.materialization_runtime.materialize_state(partition_id)
         )
-        provenance_block = OperationProvenance(
+        provenance_block = Provenance(
             actor_id="orchestration_kernel_core",
             policy_id="CENTRAL_ORCHESTRATION_MANIFEST",
             justification="Automated ingestion block commit",
         )
 
-        simulation_store = PartitionedEventStore()
+        simulation_store = EventStore()
         simulated_event, _ = simulation_store.append_event(
             partition_id, "telemetry_update", telemetry_map, provenance_block
         )

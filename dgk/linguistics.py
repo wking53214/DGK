@@ -79,7 +79,7 @@ def calculate_clause_weight(clause: str) -> float:
     return 1.0
 
 
-class LinguisticComplianceValidator:
+class TextChecker:
     """Evaluates lexical profiles to catch identity leaks and compliance drift."""
 
     def __init__(self) -> None:
@@ -185,7 +185,7 @@ class LinguisticComplianceValidator:
 # ============================================================
 
 
-class LanguageNormalizer:
+class TextNormalizer:
     """Strips enterprise jargon and hedging from outbound text.
 
     Reconstructed: the kernel calls `.normalize(text)` and stores the result as

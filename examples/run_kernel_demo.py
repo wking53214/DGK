@@ -9,7 +9,7 @@ import json
 import os
 import tempfile
 
-from dgk import SYSTEM_NAME, SYSTEM_VERSION, GovernanceOrchestrationKernel
+from dgk import SYSTEM_NAME, SYSTEM_VERSION, Kernel
 
 TELEMETRY = {
     "latency": 134.2,
@@ -25,7 +25,7 @@ PARTITION = "region-us-east-production"
 def main() -> None:
     print(f"Loading {SYSTEM_NAME} (v{SYSTEM_VERSION})...")
     log_path = os.path.join(tempfile.mkdtemp(prefix="dgk-demo-"), "audit.log")
-    kernel = GovernanceOrchestrationKernel(log_path=log_path)
+    kernel = Kernel(log_path=log_path)
 
     print("\n--- Phase 1: structural state ingestion ---")
     committed = kernel.process_transaction(PARTITION, TELEMETRY, JARGON)

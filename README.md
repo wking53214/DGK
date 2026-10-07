@@ -105,10 +105,10 @@ python3 -m pytest tests/ -q           # 43 tests
 ```
 
 ```python
-from dgk import GovernanceOrchestrationKernel
+from dgk import Kernel
 
 # log_path (or DGK_AUDIT_LOG) is required; the file is created owner-only (0600)
-kernel = GovernanceOrchestrationKernel(log_path="audit.log")
+kernel = Kernel(log_path="audit.log")
 result = kernel.process_transaction(
     partition_id="region-us-east",
     telemetry_map={
