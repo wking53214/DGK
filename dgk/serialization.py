@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
+
 # COMPONENT SERIALIZATION & DETERMINISTIC UTILITIES
 # ============================================================
 def canonicalize_dictionary(obj: Dict[str, Any]) -> str:
@@ -24,5 +25,6 @@ def normalize_numeric_precision(obj: Any, precision: int = 10) -> Any:
 def filter_private_keys(obj: Dict[str, Any]) -> Dict[str, Any]:
     """Strips runtime internal attributes starting with underscores."""
     return {k: v for k, v in obj.items() if not k.startswith("_")}
+
 
 # ============================================================

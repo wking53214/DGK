@@ -68,9 +68,13 @@ from dgk import GovernanceOrchestrationKernel
 kernel = GovernanceOrchestrationKernel(log_path="audit.log")
 result = kernel.process_transaction(
     partition_id="region-us-east",
-    telemetry_map={"latency": 134.2, "abort_rate": 0.008,
-                   "reentry_rate": 0.04, "load_depth": 280.0,
-                   "determinism_index": 0.998},
+    telemetry_map={
+        "latency": 134.2,
+        "abort_rate": 0.008,
+        "reentry_rate": 0.04,
+        "load_depth": 280.0,
+        "determinism_index": 0.998,
+    },
     text_payload="We are utilizing holistic paradigms.",
 )
 # -> COMMITTED, with a block hash, a ledger sequence number,

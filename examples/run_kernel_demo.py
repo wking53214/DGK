@@ -32,7 +32,9 @@ def main() -> None:
     print(json.dumps(committed, indent=4))
 
     print("\n--- Phase 2: perimeter rejection ---")
-    rejected = kernel.process_transaction(PARTITION, TELEMETRY, "this text is forbidden")
+    rejected = kernel.process_transaction(
+        PARTITION, TELEMETRY, "this text is forbidden"
+    )
     print(json.dumps(rejected, indent=4))
     print("  Nothing was committed: the ledger head is unchanged and the")
     print("  write-ahead log has no record of the rejected request.")

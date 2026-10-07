@@ -34,8 +34,13 @@ from dgk import (
     verify_hmac_signature,
 )
 
-HEALTHY = {"latency": 134.2, "abort_rate": 0.008, "reentry_rate": 0.04,
-           "load_depth": 280.0, "determinism_index": 0.998}
+HEALTHY = {
+    "latency": 134.2,
+    "abort_rate": 0.008,
+    "reentry_rate": 0.04,
+    "load_depth": 280.0,
+    "determinism_index": 0.998,
+}
 JARGON = "We are utilizing holistic paradigms to operationalize granular and suboptimal systems."
 
 
@@ -51,8 +56,11 @@ def kernel():
 # Serialization: the base everything else's integrity rests on
 # --------------------------------------------------------------------------
 
+
 def test_canonicalization_is_key_order_independent():
-    assert canonicalize_dictionary({"a": 1, "b": 2}) == canonicalize_dictionary({"b": 2, "a": 1})
+    assert canonicalize_dictionary({"a": 1, "b": 2}) == canonicalize_dictionary(
+        {"b": 2, "a": 1}
+    )
 
 
 def test_canonicalization_distinguishes_different_content():
@@ -62,6 +70,7 @@ def test_canonicalization_distinguishes_different_content():
 # --------------------------------------------------------------------------
 # HMAC attestation
 # --------------------------------------------------------------------------
+
 
 def test_signature_round_trips():
     state = {"value": 42}
@@ -90,6 +99,7 @@ def test_unsigned_state_does_not_verify():
 # Ledger: the chain is the point
 # --------------------------------------------------------------------------
 
+
 def _provenance():
     return OperationProvenance(actor_id="test", policy_id="p", justification="j")
 
@@ -113,15 +123,18 @@ def test_identical_payloads_still_get_distinct_hashes():
     store = PartitionedEventStore()
     _, head1 = store.append_event("p", "t", {"n": 1}, _provenance())
     _, head2 = store.append_event("p", "t", {"n": 1}, _provenance())
-    assert head1 != head2   # the chain, not just the payload, feeds the hash
+    assert head1 != head2  # the chain, not just the payload, feeds the hash
 
 
 # --------------------------------------------------------------------------
 # Interceptors
 # --------------------------------------------------------------------------
 
+
 def _ctx(text):
-    return GovernanceContext(request_text=text, raw_request={}, messages=[], metadata={})
+    return GovernanceContext(
+        request_text=text, raw_request={}, messages=[], metadata={}
+    )
 
 
 def test_empty_registry_passes():
@@ -140,11 +153,16 @@ def test_content_filter_rejects_and_names_itself():
 def test_registry_stops_at_the_first_failure():
     class AlwaysFails:
         name = "first"
-        def enforce(self, context): return RuleResult(False, self.name, "no")
+
+        def enforce(self, context):
+            return RuleResult(False, self.name, "no")
 
     class ShouldNotRun:
         name = "second"
-        def __init__(self): self.ran = False
+
+        def __init__(self):
+            self.ran = False
+
         def enforce(self, context):
             self.ran = True
             return RuleResult(True, self.name)
@@ -166,7 +184,12 @@ def test_registration_order_is_preserved():
 def test_request_normalizer_reads_flat_text_and_messages():
     assert RequestNormalizer.normalize({"text": "hello"}).request_text == "hello"
     from_messages = RequestNormalizer.normalize(
-        {"messages": [{"role": "user", "content": "a"}, {"role": "user", "content": "b"}]}
+        {
+            "messages": [
+                {"role": "user", "content": "a"},
+                {"role": "user", "content": "b"},
+            ]
+        }
     )
     assert "a" in from_messages.request_text and "b" in from_messages.request_text
 
@@ -179,8 +202,13 @@ def test_request_normalizer_survives_an_empty_payload():
 
 def test_boundary_barrier_names_each_fault():
     ok, faults = RuntimeBoundaryBarrier().verify_bounds(
-        TelemetryMetricsPayload(latency=900.0, abort_rate=0.5, reentry_rate=3.0,
-                                load_depth=1.0, determinism_index=1.0)
+        TelemetryMetricsPayload(
+            latency=900.0,
+            abort_rate=0.5,
+            reentry_rate=3.0,
+            load_depth=1.0,
+            determinism_index=1.0,
+        )
     )
     assert not ok
     assert set(faults) == {"latency_fault", "abort_fault", "reentry_fault"}
@@ -190,10 +218,13 @@ def test_boundary_barrier_names_each_fault():
 # Linguistics -- including the bug that made this unusable
 # --------------------------------------------------------------------------
 
+
 def test_compliance_validation_runs_instead_of_raising():
     # Regression: the original looked up the violation label as a threshold key
     # and raised KeyError for any segment with non-zero clause weight.
-    assert isinstance(LinguisticComplianceValidator().validate_text_stream(JARGON), list)
+    assert isinstance(
+        LinguisticComplianceValidator().validate_text_stream(JARGON), list
+    )
 
 
 def test_sycophancy_markers_are_detected():
@@ -252,6 +283,7 @@ def test_language_normalizer_is_case_insensitive_and_word_bounded():
 # Stability
 # --------------------------------------------------------------------------
 
+
 def test_welford_matches_a_direct_calculation():
     stats = RunningWelfordStatistics()
     for value in (2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0):
@@ -272,6 +304,7 @@ def test_welford_is_defined_for_a_single_sample():
 # --------------------------------------------------------------------------
 # Kernel, end to end
 # --------------------------------------------------------------------------
+
 
 def test_healthy_transaction_commits_and_scrubs(kernel):
     out = kernel.process_transaction("part", HEALTHY, JARGON)
@@ -323,10 +356,20 @@ def test_wal_records_are_valid_json_lines():
 
 from dgk import HysteresisControlChassis, OperationalRegime  # noqa: E402
 
-CALM = TelemetryMetricsPayload(latency=134.2, abort_rate=0.008, reentry_rate=0.04,
-                               load_depth=280.0, determinism_index=0.998)
-SPIKE = TelemetryMetricsPayload(latency=5000.0, abort_rate=0.9, reentry_rate=0.04,
-                                load_depth=9000.0, determinism_index=0.998)
+CALM = TelemetryMetricsPayload(
+    latency=134.2,
+    abort_rate=0.008,
+    reentry_rate=0.04,
+    load_depth=280.0,
+    determinism_index=0.998,
+)
+SPIKE = TelemetryMetricsPayload(
+    latency=5000.0,
+    abort_rate=0.9,
+    reentry_rate=0.04,
+    load_depth=9000.0,
+    determinism_index=0.998,
+)
 
 
 def test_steady_calm_telemetry_stays_nominal():
@@ -339,7 +382,10 @@ def test_steady_calm_telemetry_stays_nominal():
 def test_escalation_is_immediate():
     chassis = HysteresisControlChassis()
     chassis.process_telemetry_step(CALM)
-    assert chassis.process_telemetry_step(SPIKE)["operational_regime"] != OperationalRegime.NOMINAL.name
+    assert (
+        chassis.process_telemetry_step(SPIKE)["operational_regime"]
+        != OperationalRegime.NOMINAL.name
+    )
 
 
 def test_recovery_requires_a_sustained_calm_run():
@@ -353,14 +399,17 @@ def test_recovery_requires_a_sustained_calm_run():
 
     assert chassis.process_telemetry_step(CALM)["operational_regime"] == escalated.name
     assert chassis.process_telemetry_step(CALM)["operational_regime"] == escalated.name
-    assert chassis.process_telemetry_step(CALM)["operational_regime"] == OperationalRegime.NOMINAL.name
+    assert (
+        chassis.process_telemetry_step(CALM)["operational_regime"]
+        == OperationalRegime.NOMINAL.name
+    )
 
 
 def test_a_single_calm_reading_does_not_reset_the_streak_to_recovery():
     chassis = HysteresisControlChassis(calm_readings_before_recovery=3)
     chassis.process_telemetry_step(SPIKE)
     chassis.process_telemetry_step(CALM)
-    chassis.process_telemetry_step(SPIKE)   # re-spike interrupts the run
+    chassis.process_telemetry_step(SPIKE)  # re-spike interrupts the run
     chassis.process_telemetry_step(CALM)
     assert chassis.current_regime is not OperationalRegime.NOMINAL
 
@@ -369,7 +418,10 @@ def test_energy_is_zero_when_no_baseline_spread_exists():
     # Regression: the original substituted the raw magnitude for the z-score,
     # so load_depth 280 squared into the energy sum and dominated it.
     from dgk import LyapunovWeightConfig, calculate_lyapunov_state_energy
-    flat = {k: (0.0, 0.0) for k in ("latency", "abort", "reentry", "load", "determinism")}
+
+    flat = {
+        k: (0.0, 0.0) for k in ("latency", "abort", "reentry", "load", "determinism")
+    }
     assert calculate_lyapunov_state_energy(CALM, flat, LyapunovWeightConfig()) == 0.0
 
 
@@ -378,6 +430,7 @@ def test_energy_is_zero_when_no_baseline_spread_exists():
 # --------------------------------------------------------------------------
 # The kernel used to default its log to a fixed path in /tmp. These pin the
 # replacement: the caller must choose the path, and the file is private.
+
 
 def test_kernel_requires_a_log_path(monkeypatch):
     monkeypatch.delenv("DGK_AUDIT_LOG", raising=False)

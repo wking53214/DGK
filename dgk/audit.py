@@ -9,10 +9,12 @@ from typing import Any, Dict, List, Optional
 
 from .serialization import canonicalize_dictionary, filter_private_keys
 
+
 # WRITE-AHEAD LOGGING AUDIT CHANNEL
 # ============================================================
 class AuditTrailWAL:
     """Append-only transaction logger handling structural engine storage operations."""
+
     def __init__(self, storage_path: str):
         self.storage_path = storage_path
         if os.path.dirname(storage_path):
@@ -35,6 +37,7 @@ class AuditTrailWAL:
         with open(self.storage_path, "r", encoding="utf-8") as file_reader:
             return [json.loads(line) for line in file_reader if line.strip()]
 
+
 # ============================================================
 # CRYPTOGRAPHIC SECURITY ATTESTATION
 # ============================================================
@@ -49,6 +52,9 @@ def verify_hmac_signature(state: Dict[str, Any], secret_key: bytes) -> bool:
     target_signature = state.get("_sig")
     if not target_signature:
         return False
-    return hmac.compare_digest(target_signature, generate_hmac_signature(state, secret_key))
+    return hmac.compare_digest(
+        target_signature, generate_hmac_signature(state, secret_key)
+    )
+
 
 # ============================================================
