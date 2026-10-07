@@ -13,7 +13,6 @@ import tempfile
 
 import pytest
 
-import dgk
 from dgk import (
     AuditTrailWAL,
     ContentFilterInterceptor,

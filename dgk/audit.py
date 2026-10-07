@@ -4,8 +4,7 @@ import hashlib
 import hmac
 import json
 import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from .serialization import canonicalize_dictionary, filter_private_keys
 

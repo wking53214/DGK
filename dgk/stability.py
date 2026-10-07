@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import math
-import statistics
-import time
 from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from .taxonomy import (
     REGIME_SEVERITY_INDEX,
