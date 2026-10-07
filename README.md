@@ -1,58 +1,101 @@
 # DGK
 
-**Distributed Governance Control Engine.**
+DGK is a prototype governance kernel. It is a single-process Python library
+that checks health telemetry and text output for each transaction, decides
+whether to accept it, and writes a record of what happened.
 
-A governance kernel for systems that have to be able to prove, afterwards, what
-they did and why.
+**Status: prototype. Not production software.** It is a reconstruction. The
+original repository was lost, and this code was rebuilt from a conversation
+export. See `PROVENANCE.md` and `RECONSTRUCTION.md`.
 
-This repository is a reconstruction. The original was lost; it has been rebuilt
-from the source conversation preserved in the account's Gemini archive. See
-`PROVENANCE.md` for where it came from and `RECONSTRUCTION.md` for what was
-repaired, restored, and changed.
+## What it is for
 
-## The idea
+The intent is a system that can prove afterward what it did and why. Two
+design promises follow from that intent:
 
-Most systems record what they decided. This one is built so the record cannot
-quietly disagree with what actually happened.
+1. Current state is derived from the event record.
+2. Every record is chained and signed, so editing history leaves evidence.
 
-Two commitments do the work. **State is derived, never stored** — current state
-is a replay of the event stream, so the ledger is the only source of truth and a
-state value that contradicts the events behind it is detectable rather than
-invisible. And **every accepted operation is chained** — entries are linked by
-SHA-256 and signed with HMAC, so editing history after the fact leaves evidence.
+Only part of this is built. The gaps are listed below. Read the gaps before
+you rely on the record for anything.
 
-## A transaction
+## What it does, per transaction
 
-Five stages. Any of the first three can stop it, and nothing commits until all
-three have passed.
+1. Reads five telemetry values (latency, abort rate, retry rate, load depth,
+   determinism) and places the system in an operating regime. It escalates
+   at once and recovers only after three calm readings in a row. This part
+   works and is tested.
+2. Rejects the request if the text contains the word "forbidden". A rejected
+   request writes nothing to the ledger or the audit file. This is tested and
+   is deliberate, but it means a refusal leaves no trace.
+3. Checks a set of invariants. The only invariant can never fail (see gaps).
+4. Commits the event to an in-memory ledger.
+5. Checks the text for sycophantic phrasing and first-person identity
+   language, and replaces a short list of jargon words. Findings are recorded.
+   Nothing is blocked on this step.
+6. Writes one JSON line to the audit file.
 
-| Stage | Module | What happens |
-|---|---|---|
-| 1 | `stability.py` | Telemetry is classified into an operational regime |
-| 2 | `interceptors.py` | Perimeter rules accept or reject the request |
-| 3 | `ledger.py` | The proposed transition is checked against invariants |
-| 4 | `ledger.py` | The event is appended and state re-projected |
-| 5 | `linguistics.py` | Text is checked for compliance, then normalized |
+Breaches of the health limits (latency above 500, abort rate above 0.25, retry
+rate above 2.0) are flagged. The transaction is still committed.
 
-The outcome is then written to a write-ahead audit log (`audit.py`).
+## Known gaps
 
-Three design choices worth stating, because they are what the kernel is for:
+These are the gaps between the design and the code. Each one is confirmed by
+reading the code. Tests do not cover them.
 
-**Rejection fails closed and names one rule.** The interceptor registry stops at
-the first failure, so a rejected request comes back with the single rule that
-rejected it and its reason — not a list to sift through.
+**Record and proof**
+- The ledger exists only in memory. It is lost on restart, and there is no
+  function to verify its hash chain.
+- The audit file lines are not chained and not signed. Signing helpers exist
+  but nothing calls them. Replaying the audit file reads lines and checks
+  nothing.
+- The audit line is written after the ledger commit. A crash between the two
+  leaves a commit with no audit line.
+- A rejected request leaves no record at all.
 
-**Regime classification has hysteresis.** A system sitting exactly on a
-threshold would otherwise flip between regimes on noise alone, and every flip
-would be an event in the ledger. The chassis requires a sustained crossing.
+**Identity**
+- Every transaction is recorded under the same fixed internal actor and
+  policy. The caller is not identified or checked.
+- The caller also chooses the partition name, so any caller can write to any
+  partition.
 
-**Nothing commits on a rejected path.** A rejected transaction leaves no ledger
-entry and no audit record. Two tests exist solely to pin that.
+**Concurrency**
+- The name says "distributed." It is one process. The ledger imports a lock
+  and never uses it, so concurrent calls can be given the same sequence
+  number.
+
+**Blocking and invariants**
+- Health breaches are flagged but do not stop a commit.
+- The only invariant (a critical state must have a logged escalation) can
+  never fail. The kernel never creates a status change event, and the
+  classifier never returns the top regime.
+- The text check is advisory. It records findings but blocks nothing.
+
+**Text checks**
+- The sycophancy and identity checks are word-list heuristics. Scoring is per
+  sentence, so a sycophantic paragraph can pass (pinned by a test as observed
+  behavior).
+- The jargon table is short and hand-written.
+
+**Numbers and hashing**
+- A rounding helper exists but is not used. Numbers are hashed as written.
+- The entropy score adds five unlike quantities, so it is not a clean
+  information measure.
+
+**Other**
+- The echo state reservoir is optional (needs numpy). The kernel never uses it.
+- The version number 4.0.0 is inherited from the pasted original. It does not
+  reflect a release history.
+
+## What works and is tested
+
+- The audit file is created owner-only and refuses a symlink at its path.
+- Regime escalation and recovery, including the recovery streak.
+- Rejected requests leave the ledger and audit file untouched.
+- A healthy transaction commits and its text is normalized.
+- 43 tests pass. CI runs the tests and the demo on Python 3.10 to 3.13.
 
 ## Running it
-
-Standard library only. `numpy` is optional and powers `EchoStateReservoir`
-alone; `pytest` is needed for the tests.
 
 ```bash
 pip install -e .               # or: pip install -e ".[reservoir]"
@@ -77,34 +120,23 @@ result = kernel.process_transaction(
     },
     text_payload="We are utilizing holistic paradigms.",
 )
-# -> COMMITTED, with a block hash, a ledger sequence number,
-#    and "We are using complete models."
+# -> transaction_status COMMITTED, a block hash, a ledger sequence number,
+#    and scrubbed text "We are using complete models."
 ```
 
-## What the pieces are
+## Modules
 
-- **`taxonomy.py`** — regimes, telemetry payloads, provenance, events, contexts
-- **`serialization.py`** — canonical JSON, the base every hash and signature rests on
-- **`audit.py`** — append-only write-ahead log, HMAC signing and verification
-- **`ledger.py`** — partitioned hash-chained event store, reducers, invariant manifests, snapshots
-- **`linguistics.py`** — compliance validation (identity leakage, sycophancy) and jargon normalization
-- **`stability.py`** — Welford statistics, Shannon entropy, Lyapunov state energy, regime classification with hysteresis, echo state reservoir
-- **`interceptors.py`** — perimeter rules and the registry that runs them
-- **`kernel.py`** — the orchestrator that wires all of it into one transaction
+- `taxonomy.py`: regimes, telemetry payloads, provenance, events
+- `serialization.py`: canonical JSON and helpers (see gaps on rounding)
+- `audit.py`: owner-only audit file, HMAC helpers (not on the write path)
+- `ledger.py`: in-memory hash-chained event store, reducer, invariants, snapshots
+- `linguistics.py`: text checks and jargon normalization
+- `stability.py`: running statistics, entropy, energy, regime classifier with hysteresis, optional reservoir
+- `interceptors.py`: perimeter rules and the rule registry
+- `kernel.py`: wires the pieces into one transaction
 
-## Known characteristics
+## Known open items
 
-Two behaviours are pinned by tests as *observed*, not endorsed:
-
-- **Sycophancy scoring dilutes across sentences.** Markers are scored per
-  segment, so five sycophantic sentences each score below threshold while one
-  dense clause is flagged. A wholly sycophantic paragraph can pass.
-- **Identical telemetry produces identical energy.** With no spread in the
-  running statistics there is no measurable deviation, so the Lyapunov energy
-  is zero and the regime rests at `NOMINAL`. Variation is what the classifier
-  reacts to, not magnitude.
-
-That one is documented rather than corrected, since changing it would be a
-behaviour change rather than a bug fix. Two genuine defects in this area *were*
-corrected — a regime ratchet that could never recover, and raw magnitudes being
-used as z-scores — both described in `RECONSTRUCTION.md`.
+Caller identity, signed and chained audit records, a persistent ledger with a
+verify step, a lock on sequence numbers, blocking gates for breaches, and a
+single rounding policy before hashing. None of these are built yet.
