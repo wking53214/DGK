@@ -13,7 +13,7 @@ SYSTEM_VERSION = "4.0.0"
 
 # SYSTEM ENUMERATIONS
 # ============================================================
-class OperationalRegime(Enum):
+class Regime(Enum):
     NOMINAL = auto()
     TRANSIENT_SURGE = auto()
     RESOURCE_SATURATED = auto()
@@ -22,13 +22,13 @@ class OperationalRegime(Enum):
     CRITICAL_PANIC = auto()
 
 
-REGIME_SEVERITY_INDEX = {
-    OperationalRegime.NOMINAL: 1,
-    OperationalRegime.TRANSIENT_SURGE: 2,
-    OperationalRegime.RESOURCE_SATURATED: 3,
-    OperationalRegime.STOCHASTIC_CONFUSION: 4,
-    OperationalRegime.ANOMALOUS_DRIFT: 5,
-    OperationalRegime.CRITICAL_PANIC: 6,
+REGIME_SEVERITY = {
+    Regime.NOMINAL: 1,
+    Regime.TRANSIENT_SURGE: 2,
+    Regime.RESOURCE_SATURATED: 3,
+    Regime.STOCHASTIC_CONFUSION: 4,
+    Regime.ANOMALOUS_DRIFT: 5,
+    Regime.CRITICAL_PANIC: 6,
 }
 
 
@@ -36,7 +36,7 @@ REGIME_SEVERITY_INDEX = {
 # STRUCTURAL DATA CONFIGURATIONS
 # ============================================================
 @dataclass(frozen=True)
-class TelemetryCeilings:
+class TelemetryLimits:
     MAX_LATENCY_MS: float = 600.0
     MAX_ABORT_RATE: float = 1.0
     MAX_REENTRY_RATE: float = 10.0
@@ -46,7 +46,7 @@ class TelemetryCeilings:
 
 
 @dataclass(frozen=True)
-class LyapunovWeightConfig:
+class EnergyWeights:
     weight_latency: float = 0.20
     weight_abort: float = 0.30
     weight_reentry: float = 0.20
@@ -55,7 +55,7 @@ class LyapunovWeightConfig:
 
 
 @dataclass(frozen=True)
-class TelemetryMetricsPayload:
+class TelemetryReading:
     latency: float
     abort_rate: float
     reentry_rate: float
@@ -64,38 +64,38 @@ class TelemetryMetricsPayload:
 
 
 @dataclass(frozen=True)
-class OperationProvenance:
+class Provenance:
     actor_id: str
     policy_id: str
     justification: str
 
 
 @dataclass(frozen=True)
-class NormalizedEvent:
+class Event:
     event_id: str
     entity_id: str
     sequence_no: int
     event_type: str
     delta: Dict[str, Any]
-    provenance: OperationProvenance
+    provenance: Provenance
 
 
 @dataclass(frozen=True)
-class StateSnapshot:
+class Snapshot:
     entity_id: str
     last_sequence_no: int
     context: Dict[str, Any]
 
 
 @dataclass(frozen=True)
-class RuleResult:
+class CheckResult:
     passed: bool
     rule_identifier: str
     details: Optional[str] = None
 
 
 @dataclass
-class GovernanceContext:
+class RequestContext:
     request_text: str
     raw_request: Dict[str, Any]
     messages: List[Dict[str, Any]]

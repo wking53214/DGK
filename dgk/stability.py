@@ -6,11 +6,11 @@ from threading import Lock
 from typing import Any, Dict, Tuple
 
 from .taxonomy import (
-    REGIME_SEVERITY_INDEX,
-    LyapunovWeightConfig,
-    OperationalRegime,
-    TelemetryCeilings,
-    TelemetryMetricsPayload,
+    REGIME_SEVERITY,
+    EnergyWeights,
+    Regime,
+    TelemetryLimits,
+    TelemetryReading,
 )
 
 try:  # numpy powers the reservoir only; everything else is stdlib
@@ -21,7 +21,7 @@ except BaseException:  # pragma: no cover - environment dependent
 
 # STOCHASTIC TELEMETRY ANALYSIS & CONTROL THEORY ENERGY
 # ============================================================
-class RunningWelfordStatistics:
+class RunningStats:
     """Tracks stable running data stats using numerically guarded online calculations."""
 
     def __init__(self) -> None:
@@ -41,21 +41,21 @@ class RunningWelfordStatistics:
         return math.sqrt(self.sum_of_squares / (self.sample_count - 1))
 
 
-class ThreadSafeSystemAnalytics:
+class ThreadSafeStats:
     """Orchestrates asynchronous statistical updates across operational runtime paths."""
 
     def __init__(self) -> None:
         self.mutex_lock = Lock()
         self.metric_trackers = {
-            "latency": RunningWelfordStatistics(),
-            "abort": RunningWelfordStatistics(),
-            "reentry": RunningWelfordStatistics(),
-            "load": RunningWelfordStatistics(),
-            "determinism": RunningWelfordStatistics(),
+            "latency": RunningStats(),
+            "abort": RunningStats(),
+            "reentry": RunningStats(),
+            "load": RunningStats(),
+            "determinism": RunningStats(),
         }
 
     def register_payload(
-        self, payload: TelemetryMetricsPayload
+        self, payload: TelemetryReading
     ) -> Dict[str, Tuple[float, float]]:
         with self.mutex_lock:
             self.metric_trackers["latency"].process_sample(payload.latency)
@@ -74,9 +74,7 @@ class ThreadSafeSystemAnalytics:
         }
 
 
-def calculate_shannon_entropy(
-    payload: TelemetryMetricsPayload, ceilings: TelemetryCeilings
-) -> float:
+def calculate_entropy(payload: TelemetryReading, ceilings: TelemetryLimits) -> float:
     """Calculates systemic structural uncertainty based on entropy configurations."""
     distribution_probabilities = [
         payload.latency / ceilings.MAX_LATENCY_MS,
@@ -96,10 +94,10 @@ def calculate_shannon_entropy(
     return entropy_accumulation
 
 
-def calculate_lyapunov_state_energy(
-    payload: TelemetryMetricsPayload,
+def calculate_deviation_score(
+    payload: TelemetryReading,
     stats: Dict[str, Tuple[float, float]],
-    configuration: LyapunovWeightConfig,
+    configuration: EnergyWeights,
 ) -> float:
     """Constructs dynamic quadratic bounds tracking system stability variance deviations."""
 
@@ -127,62 +125,60 @@ def calculate_lyapunov_state_energy(
     )
 
 
-class ControlTheoryRegimeClassifier:
+class RegimeClassifier:
     """Resolves operational severity buckets using control theory equations."""
 
     def __init__(self) -> None:
-        self.analytics_orchestrator = ThreadSafeSystemAnalytics()
+        self.analytics_orchestrator = ThreadSafeStats()
 
     def resolve_payload_regime(
-        self, payload: TelemetryMetricsPayload
-    ) -> Tuple[OperationalRegime, float, float]:
+        self, payload: TelemetryReading
+    ) -> Tuple[Regime, float, float]:
         historical_stats = self.analytics_orchestrator.register_payload(payload)
-        ceilings_reference = TelemetryCeilings()
-        computed_entropy = calculate_shannon_entropy(payload, ceilings_reference)
-        computed_energy = calculate_lyapunov_state_energy(
-            payload, historical_stats, LyapunovWeightConfig()
+        ceilings_reference = TelemetryLimits()
+        computed_entropy = calculate_entropy(payload, ceilings_reference)
+        computed_energy = calculate_deviation_score(
+            payload, historical_stats, EnergyWeights()
         )
 
         if payload.determinism_index > 0.85 and computed_energy > 3:
-            return OperationalRegime.ANOMALOUS_DRIFT, computed_entropy, computed_energy
+            return Regime.ANOMALOUS_DRIFT, computed_entropy, computed_energy
         if computed_entropy > 2.0:
             return (
-                OperationalRegime.STOCHASTIC_CONFUSION,
+                Regime.STOCHASTIC_CONFUSION,
                 computed_entropy,
                 computed_energy,
             )
         if payload.load_depth > 0.85 * ceilings_reference.MAX_LOAD_DEPTH:
             return (
-                OperationalRegime.RESOURCE_SATURATED,
+                Regime.RESOURCE_SATURATED,
                 computed_entropy,
                 computed_energy,
             )
 
         latency_mean, latency_std = historical_stats["latency"]
         if payload.latency > latency_mean + 2 * latency_std:
-            return OperationalRegime.TRANSIENT_SURGE, computed_entropy, computed_energy
+            return Regime.TRANSIENT_SURGE, computed_entropy, computed_energy
 
-        return OperationalRegime.NOMINAL, computed_entropy, computed_energy
+        return Regime.NOMINAL, computed_entropy, computed_energy
 
 
-class HysteresisControlChassis:
+class RegimeTracker:
     """Dampens systemic oscillation flips across configuration boundaries."""
 
     def __init__(self, calm_readings_before_recovery: int = 3) -> None:
-        self.classifier_engine = ControlTheoryRegimeClassifier()
-        self.current_regime = OperationalRegime.NOMINAL
+        self.classifier_engine = RegimeClassifier()
+        self.current_regime = Regime.NOMINAL
         self.calm_readings_before_recovery = max(1, calm_readings_before_recovery)
         self._calm_streak = 0
         self.mutex_lock = Lock()
 
-    def process_telemetry_step(
-        self, payload: TelemetryMetricsPayload
-    ) -> Dict[str, Any]:
+    def process_telemetry_step(self, payload: TelemetryReading) -> Dict[str, Any]:
         """Escalate on the first bad reading, recover only after a sustained
         run of calmer ones.
 
         The recovered original could never recover at all. Its de-escalation
-        branch required `self.current_regime == OperationalRegime.NOMINAL`, but
+        branch required `self.current_regime == Regime.NOMINAL`, but
         NOMINAL is severity 1 -- the minimum -- so a strictly-lower resolved
         severity could not exist when that test was true. The branch was
         unreachable and the regime was a one-way ratchet: a system that spiked
@@ -192,8 +188,8 @@ class HysteresisControlChassis:
             self.classifier_engine.resolve_payload_regime(payload)
         )
         with self.mutex_lock:
-            resolved_severity = REGIME_SEVERITY_INDEX[resolved_regime]
-            current_severity = REGIME_SEVERITY_INDEX[self.current_regime]
+            resolved_severity = REGIME_SEVERITY[resolved_regime]
+            current_severity = REGIME_SEVERITY[self.current_regime]
 
             if resolved_severity > current_severity:
                 self.current_regime = resolved_regime  # escalate at once
@@ -216,7 +212,7 @@ class HysteresisControlChassis:
 # ============================================================
 # PIPELINE INTEGRATION & RECURRENT COMPUTATION LAYERS
 # ============================================================
-class EchoStateReservoir:
+class Reservoir:
     """Provides high-dimensional state hashing matrices seeded via identity keys."""
 
     def __init__(self, seed_key: str, node_volume: int = 128):
