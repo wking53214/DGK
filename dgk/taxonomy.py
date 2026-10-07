@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
 
@@ -9,6 +9,7 @@ logger = logging.getLogger("dgk.engine")
 
 SYSTEM_NAME = "DGK Distributed Governance Control Engine"
 SYSTEM_VERSION = "4.0.0"
+
 
 # SYSTEM ENUMERATIONS
 # ============================================================
@@ -29,6 +30,7 @@ REGIME_SEVERITY_INDEX = {
     OperationalRegime.ANOMALOUS_DRIFT: 5,
     OperationalRegime.CRITICAL_PANIC: 6,
 }
+
 
 # ============================================================
 # STRUCTURAL DATA CONFIGURATIONS
@@ -99,5 +101,6 @@ class GovernanceContext:
     messages: List[Dict[str, Any]]
     metadata: Dict[str, Any]
     audit_enabled: bool = True
+
 
 # ============================================================

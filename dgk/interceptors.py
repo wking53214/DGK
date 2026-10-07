@@ -93,7 +93,8 @@ class ContentFilterInterceptor:
     def enforce(self, context: GovernanceContext) -> RuleResult:
         if "forbidden" in context.request_text.lower():
             return RuleResult(
-                False, self.name,
+                False,
+                self.name,
                 "Security Exception: Forbidden injection sequence detected.",
             )
         return RuleResult(True, self.name)
