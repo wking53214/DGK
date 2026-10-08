@@ -45,19 +45,22 @@ def load_or_create_key(key_path: str) -> bytes:
     return key
 
 
+def open_private_append(path: str):
+    """Open a file for appending, owner-only, refusing a symlink at the path."""
+    if os.path.dirname(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | _no_follow()
+    fd = os.open(path, flags, 0o600)
+    return os.fdopen(fd, "a+", encoding="utf-8", buffering=1)
+
+
 class AuditLog:
     """Append-only transaction logger. Each line is signed and chained."""
 
     def __init__(self, storage_path: str, key_path: Optional[str] = None):
         self.storage_path = storage_path
-        if os.path.dirname(storage_path):
-            os.makedirs(os.path.dirname(storage_path), exist_ok=True)
-        # Owner-only permissions, and refuse to follow a symlink planted at
-        # the path, so another local user cannot read the trail or redirect
-        # the writes into a file of their choosing.
-        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | _no_follow()
-        fd = os.open(storage_path, flags, 0o600)
-        self.file_descriptor = os.fdopen(fd, "a+", encoding="utf-8", buffering=1)
+        # Owner-only, and refuses a symlink planted at the path.
+        self.file_descriptor = open_private_append(storage_path)
         self._key = load_or_create_key(key_path or storage_path + ".key")
         self._last_signature = _GENESIS
         # Refuse to continue on top of a trail that has already been altered.

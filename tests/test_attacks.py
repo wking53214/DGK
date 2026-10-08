@@ -161,9 +161,6 @@ def test_editing_an_audit_line_is_detected_on_replay(kernel):
         kernel.audit_logger.replay_log_history()
 
 
-@pytest.mark.xfail(
-    strict=True, reason="there is no verify step for the in-memory ledger chain"
-)
 def test_ledger_chain_can_be_verified(kernel):
     kernel.process_transaction(
         "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN

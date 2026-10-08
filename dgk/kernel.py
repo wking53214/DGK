@@ -46,7 +46,7 @@ class Kernel:
         self.audit_logger = AuditLog(log_path, key_path)
         # Empty by default: no caller can act until one is registered.
         self.callers = callers or CallerRegistry()
-        self.ledger_store = EventStore()
+        self.ledger_store = EventStore(path=log_path + ".ledger")
         self.state_reducer = StateReducer()
         self.materialization_runtime = StateMaterializer(
             self.ledger_store, self.state_reducer
