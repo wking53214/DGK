@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Tuple
 
+from .audit import open_private_append
 from .serialization import round_floats
 from .taxonomy import Event, Provenance, Snapshot
 
@@ -48,10 +49,21 @@ class Sha256Chain(HashChainStrategy):
 class EventStore:
     """An append-only, hash-chained event store, kept separately per partition."""
 
-    def __init__(self, hashing_strategy: Optional[HashChainStrategy] = None):
+    def __init__(
+        self,
+        hashing_strategy: Optional[HashChainStrategy] = None,
+        path: Optional[str] = None,
+    ):
         self._partition_streams: Dict[str, List[Event]] = {}
         self._partition_heads: Dict[str, str] = {}
+        self._partition_hashes: Dict[str, List[str]] = {}
         self._hashing_strategy = hashing_strategy or Sha256Chain()
+        # With a path, every event is appended to an owner-only file, and the
+        # file is verified and loaded on startup. Without one, the store is
+        # memory only.
+        self._file = open_private_append(path) if path else None
+        if self._file is not None:
+            self._load()
         # Guards sequence numbering and the head hash so concurrent appends
         # to one partition cannot share a sequence number or fork the chain.
         self._lock = threading.Lock()
@@ -81,9 +93,72 @@ class EventStore:
                 genesis_hash, event_instance
             )
 
+            if self._file is not None:
+                # Write first: if the write fails, nothing changes in memory.
+                record = {
+                    "event_id": event_instance.event_id,
+                    "entity_id": event_instance.entity_id,
+                    "sequence_no": event_instance.sequence_no,
+                    "event_type": event_instance.event_type,
+                    "delta": event_instance.delta,
+                    "actor_id": provenance.actor_id,
+                    "policy_id": provenance.policy_id,
+                    "justification": provenance.justification,
+                    "hash": computed_hash,
+                }
+                self._file.write(json.dumps(record, sort_keys=True) + "\n")
+                self._file.flush()
+
             stream.append(event_instance)
+            self._partition_hashes.setdefault(entity_id, []).append(computed_hash)
             self._partition_heads[entity_id] = computed_hash
             return event_instance, computed_hash
+
+    def verify_chain(self, entity_id: str) -> bool:
+        """Recompute one partition's hash chain from its events. True if intact."""
+        previous = "GENESIS"
+        stream = self._partition_streams.get(entity_id, [])
+        hashes = self._partition_hashes.get(entity_id, [])
+        for index, (event, stored) in enumerate(zip(stream, hashes), start=1):
+            if event.sequence_no != index:
+                return False
+            previous = self._hashing_strategy.compute_hash(previous, event)
+            if previous != stored:
+                return False
+        return len(stream) == len(hashes)
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    def _load(self) -> None:
+        """Rebuild partitions from the file, refusing a file with a broken chain."""
+        self._file.seek(0)
+        for line in self._file:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            event = Event(
+                event_id=record["event_id"],
+                entity_id=record["entity_id"],
+                sequence_no=record["sequence_no"],
+                event_type=record["event_type"],
+                delta=record["delta"],
+                provenance=Provenance(
+                    actor_id=record["actor_id"],
+                    policy_id=record["policy_id"],
+                    justification=record["justification"],
+                ),
+            )
+            self._partition_streams.setdefault(event.entity_id, []).append(event)
+            self._partition_hashes.setdefault(event.entity_id, []).append(
+                record["hash"]
+            )
+        for entity_id in self._partition_streams:
+            if not self.verify_chain(entity_id):
+                raise ValueError(f"ledger chain is broken for partition {entity_id!r}")
+            self._partition_heads[entity_id] = self._partition_hashes[entity_id][-1]
 
     def get_events_since(self, entity_id: str, sequence_no: int) -> List[Event]:
         stream = self._partition_streams.get(entity_id, [])
