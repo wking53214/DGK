@@ -46,9 +46,10 @@ These are the gaps between the design and the code. Each one is confirmed by
 reading the code. Tests do not cover them.
 
 **Record and proof**
-- The ledger is append-only and verified on load, but removing its newest
-  events is not detectable without an external anchor (for example a
-  published head hash). A tampered middle event or line is detected.
+- OPEN: removing the newest ledger events is not detectable. The ledger is
+  append-only and verified on load, and a tampered middle event or line is
+  detected, but truncation at the end is not. Closing this needs a published
+  head hash (an external anchor). Where that anchor lives is not yet decided.
 - The audit line is written after the ledger commit. A crash between the two
   leaves a commit with no audit line.
 - The audit key sits on the same machine as the trail. Anyone who can read
@@ -155,5 +156,5 @@ places before hashing, callers checked by token and partition, the audit trail
 signed and chained with refusals recorded, and the ledger persisted and
 verified on load.
 
-Still open: an external anchor so that truncating the newest events is
-detectable.
+OPEN: an external anchor so that truncating the newest events is detectable.
+Not built, and the choice of where the anchor is published is not yet made.
