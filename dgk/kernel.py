@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from typing import Any, Dict, Optional
 
@@ -45,6 +46,9 @@ class Kernel:
         self.linguistic_compliance_engine = TextChecker()
         self.text_normalizer = TextNormalizer()
         self.hysteresis_chassis = RegimeTracker()
+        # One transaction at a time: the manifest check and the commit must
+        # see the same state, or two requests could both pass the check.
+        self._transaction_lock = threading.Lock()
 
         self.interceptor_registry = RuleRegistry()
         self.interceptor_registry.register(ForbiddenWordRule())
@@ -62,9 +66,14 @@ class Kernel:
     def process_transaction(
         self, partition_id: str, telemetry_map: Dict[str, Any], text_payload: str
     ) -> Dict[str, Any]:
-        """Run one transaction through every gate, in order.
+        """Run one transaction through every gate, one at a time."""
+        with self._transaction_lock:
+            return self._run_transaction(partition_id, telemetry_map, text_payload)
 
-        Steps: read telemetry and classify the regime, screen the text at the
+    def _run_transaction(
+        self, partition_id: str, telemetry_map: Dict[str, Any], text_payload: str
+    ) -> Dict[str, Any]:
+        """Steps: read telemetry and classify the regime, screen the text at the
         perimeter, verify the transition against the manifest, commit to the
         ledger, check and normalize the text, then write the audit record.
         """
