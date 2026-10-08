@@ -79,7 +79,6 @@ reading the code. Tests do not cover them.
 - The jargon table is short and hand-written.
 
 **Numbers and hashing**
-- A rounding helper exists but is not used. Numbers are hashed as written.
 - The entropy score adds five unlike quantities, so it is not a clean
   information measure.
 
@@ -140,5 +139,5 @@ result = kernel.process_transaction(
 ## Known open items
 
 Caller identity, signed and chained audit records, a persistent ledger with a
-verify step, and a single rounding policy before hashing. None of these are
-built yet. Sequence numbers are now locked per partition.
+verify step. None of these are built yet. Sequence numbers are now locked per
+partition, and numbers are rounded to six decimal places before hashing.
