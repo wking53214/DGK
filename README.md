@@ -62,9 +62,8 @@ reading the code. Tests do not cover them.
 
 **Concurrency**
 - The name says "distributed." It is one process. Event appends are guarded by
-  a lock, so concurrent calls cannot share a sequence number. The whole
-  transaction is not atomic: the manifest check and the commit are separate
-  steps.
+  a lock, and each whole transaction runs under one lock, so concurrent calls
+  cannot share a sequence number or both pass the manifest check.
 
 **Blocking and invariants**
 - The only invariant (a critical state must have a logged escalation) can
