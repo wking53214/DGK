@@ -83,18 +83,15 @@ def test_punctuated_forbidden_word_is_rejected(kernel):
     assert result["transaction_status"] == "REJECTED"
 
 
-def test_rejected_request_leaves_no_ledger_or_audit_trace(kernel):
+def test_rejected_request_leaves_no_ledger_entry_and_one_refusal_line(kernel):
     kernel.process_transaction(
         "p", OK_TELEMETRY, "forbidden", caller_id=CALLER, caller_token=TOKEN
     )
     assert kernel.ledger_store.get_events_since("p", 0) == []
-    assert audit_lines(kernel) == []
+    records = [json.loads(line) for line in audit_lines(kernel)]
+    assert [r["event"] for r in records] == ["refused"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="by design rejections are not recorded, so a refusal leaves no proof",
-)
 def test_rejected_request_is_recorded_as_a_refusal(kernel):
     kernel.process_transaction(
         "p", OK_TELEMETRY, "forbidden", caller_id=CALLER, caller_token=TOKEN
@@ -147,9 +144,6 @@ def test_audit_file_refuses_a_planted_symlink(tmp_path):
     assert target.read_text() == "untouched\n"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="audit lines are not chained, so an edited line goes unnoticed"
-)
 def test_editing_an_audit_line_is_detected_on_replay(kernel):
     kernel.process_transaction(
         "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
@@ -178,9 +172,6 @@ def test_ledger_chain_can_be_verified(kernel):
     assert kernel.ledger_store.verify_chain("p") is True
 
 
-@pytest.mark.xfail(
-    strict=True, reason="audit lines are not signed; the signing helper is never called"
-)
 def test_audit_records_carry_a_signature(kernel):
     kernel.process_transaction(
         "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
