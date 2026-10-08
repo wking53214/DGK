@@ -9,7 +9,13 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Tuple
 
+from .serialization import round_floats
 from .taxonomy import Event, Provenance, Snapshot
+
+# Numbers in an event's data are rounded to this many decimal places before
+# hashing, so the same reading always produces the same hash. The stored
+# event keeps full precision. Verifiers must apply the same rounding.
+HASH_FLOAT_PRECISION = 6
 
 
 # CRYPTOGRAPHICALLY TAMPER-EVIDENT EVENT STORAGE LEDGER
@@ -28,7 +34,7 @@ class Sha256Chain(HashChainStrategy):
             "entity_id": event.entity_id,
             "sequence_no": event.sequence_no,
             "event_type": event.event_type,
-            "delta": event.delta,
+            "delta": round_floats(event.delta, HASH_FLOAT_PRECISION),
             "provenance": {
                 "actor_id": event.provenance.actor_id,
                 "policy_id": event.provenance.policy_id,
