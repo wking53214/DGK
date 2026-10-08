@@ -90,6 +90,7 @@ class Kernel:
         partition_id: str,
         caller_id: str,
         reason: str,
+        cause: str,
         telemetry_metrics: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Record a refusal in the signed audit trail, then return the rejection."""
@@ -100,6 +101,7 @@ class Kernel:
                 "caller_id": caller_id,
                 "timestamp": time.time(),
                 "reason": str(reason),
+                "cause": cause,
             }
         )
         result: Dict[str, Any] = {
@@ -121,7 +123,10 @@ class Kernel:
         # Checked first, so an unauthorized request cannot change regime state.
         if not self.callers.authorizes(caller_id, caller_token, partition_id):
             return self._refuse(
-                partition_id, caller_id, "caller is not authorized for this partition"
+                partition_id,
+                caller_id,
+                "caller is not authorized for this partition",
+                "IDENTITY",
             )
 
         """Steps: read telemetry and classify the regime, screen the text at the
@@ -138,6 +143,7 @@ class Kernel:
                 partition_id,
                 caller_id,
                 perimeter_check.details,
+                "PERIMETER",
                 telemetry_metrics=stability_metrics,
             )
 
@@ -146,6 +152,7 @@ class Kernel:
                 partition_id,
                 caller_id,
                 f"Health limits breached: {boundary_faults}",
+                "HEALTH_LIMIT",
                 telemetry_metrics=stability_metrics,
             )
 
@@ -162,6 +169,7 @@ class Kernel:
                 partition_id,
                 caller_id,
                 f"Manifest contract breached: {invariant_breaches}",
+                "MANIFEST",
             )
 
         committed_block, blockchain_head_hash = self.ledger_store.append_event(
