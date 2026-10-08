@@ -22,6 +22,16 @@ from dgk import (
     sign_record,
 )
 
+CALLER = "tester"
+TOKEN = "tester-token-0123456789abcdef0123456789"
+PARTITIONS = ("a", "p")
+
+
+def authorize(kernel):
+    kernel.callers.register(CALLER, TOKEN, PARTITIONS)
+    return kernel
+
+
 OK_TELEMETRY = {
     "latency": 134.2,
     "abort_rate": 0.008,
@@ -34,7 +44,7 @@ PROVENANCE = Provenance(actor_id="attacker", policy_id="none", justification="at
 
 @pytest.fixture
 def kernel(tmp_path):
-    return Kernel(log_path=str(tmp_path / "audit.log"))
+    return authorize(Kernel(log_path=str(tmp_path / "audit.log")))
 
 
 def audit_lines(kernel):
@@ -49,7 +59,9 @@ def audit_lines(kernel):
 
 
 def test_uppercase_forbidden_word_is_rejected(kernel):
-    result = kernel.process_transaction("p", OK_TELEMETRY, "THIS IS FORBIDDEN")
+    result = kernel.process_transaction(
+        "p", OK_TELEMETRY, "THIS IS FORBIDDEN", caller_id=CALLER, caller_token=TOKEN
+    )
     assert result["transaction_status"] == "REJECTED"
 
 
@@ -57,18 +69,24 @@ def test_uppercase_forbidden_word_is_rejected(kernel):
     strict=True, reason="homoglyph: a Cyrillic letter in 'forbidden' passes"
 )
 def test_homoglyph_forbidden_word_is_rejected(kernel):
-    result = kernel.process_transaction("p", OK_TELEMETRY, "this is fоrbidden")
+    result = kernel.process_transaction(
+        "p", OK_TELEMETRY, "this is fоrbidden", caller_id=CALLER, caller_token=TOKEN
+    )
     assert result["transaction_status"] == "REJECTED"
 
 
 @pytest.mark.xfail(strict=True, reason="punctuation split: 'for-bidden' passes")
 def test_punctuated_forbidden_word_is_rejected(kernel):
-    result = kernel.process_transaction("p", OK_TELEMETRY, "this is for-bidden")
+    result = kernel.process_transaction(
+        "p", OK_TELEMETRY, "this is for-bidden", caller_id=CALLER, caller_token=TOKEN
+    )
     assert result["transaction_status"] == "REJECTED"
 
 
 def test_rejected_request_leaves_no_ledger_or_audit_trace(kernel):
-    kernel.process_transaction("p", OK_TELEMETRY, "forbidden")
+    kernel.process_transaction(
+        "p", OK_TELEMETRY, "forbidden", caller_id=CALLER, caller_token=TOKEN
+    )
     assert kernel.ledger_store.get_events_since("p", 0) == []
     assert audit_lines(kernel) == []
 
@@ -78,7 +96,9 @@ def test_rejected_request_leaves_no_ledger_or_audit_trace(kernel):
     reason="by design rejections are not recorded, so a refusal leaves no proof",
 )
 def test_rejected_request_is_recorded_as_a_refusal(kernel):
-    kernel.process_transaction("p", OK_TELEMETRY, "forbidden")
+    kernel.process_transaction(
+        "p", OK_TELEMETRY, "forbidden", caller_id=CALLER, caller_token=TOKEN
+    )
     assert len(audit_lines(kernel)) == 1
 
 
@@ -88,13 +108,23 @@ def test_rejected_request_is_recorded_as_a_refusal(kernel):
 @pytest.mark.xfail(strict=True, reason="a NaN latency is committed as a normal reading")
 def test_non_finite_telemetry_is_rejected(kernel):
     result = kernel.process_transaction(
-        "p", dict(OK_TELEMETRY, latency=float("nan")), "fine"
+        "p",
+        dict(OK_TELEMETRY, latency=float("nan")),
+        "fine",
+        caller_id=CALLER,
+        caller_token=TOKEN,
     )
     assert result["transaction_status"] == "REJECTED"
 
 
 def test_health_breach_blocks_the_commit(kernel):
-    result = kernel.process_transaction("p", dict(OK_TELEMETRY, latency=900.0), "fine")
+    result = kernel.process_transaction(
+        "p",
+        dict(OK_TELEMETRY, latency=900.0),
+        "fine",
+        caller_id=CALLER,
+        caller_token=TOKEN,
+    )
     assert result["transaction_status"] != "COMMITTED"
     assert kernel.ledger_store.get_events_since("p", 0) == []
 
@@ -121,8 +151,12 @@ def test_audit_file_refuses_a_planted_symlink(tmp_path):
     strict=True, reason="audit lines are not chained, so an edited line goes unnoticed"
 )
 def test_editing_an_audit_line_is_detected_on_replay(kernel):
-    kernel.process_transaction("p", OK_TELEMETRY, "fine")
-    kernel.process_transaction("p", OK_TELEMETRY, "fine")
+    kernel.process_transaction(
+        "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
+    )
+    kernel.process_transaction(
+        "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
+    )
     path = Path(kernel.audit_logger.storage_path)
     lines = path.read_text().splitlines()
     record = json.loads(lines[0])
@@ -137,7 +171,9 @@ def test_editing_an_audit_line_is_detected_on_replay(kernel):
     strict=True, reason="there is no verify step for the in-memory ledger chain"
 )
 def test_ledger_chain_can_be_verified(kernel):
-    kernel.process_transaction("p", OK_TELEMETRY, "fine")
+    kernel.process_transaction(
+        "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
+    )
     assert hasattr(kernel.ledger_store, "verify_chain")
     assert kernel.ledger_store.verify_chain("p") is True
 
@@ -146,16 +182,19 @@ def test_ledger_chain_can_be_verified(kernel):
     strict=True, reason="audit lines are not signed; the signing helper is never called"
 )
 def test_audit_records_carry_a_signature(kernel):
-    kernel.process_transaction("p", OK_TELEMETRY, "fine")
+    kernel.process_transaction(
+        "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
+    )
     record = json.loads(audit_lines(kernel)[0])
     assert "signature" in record
 
 
-@pytest.mark.xfail(strict=True, reason="the audit record names no caller")
 def test_audit_records_name_the_caller(kernel):
-    kernel.process_transaction("p", OK_TELEMETRY, "fine")
+    kernel.process_transaction(
+        "p", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
+    )
     record = json.loads(audit_lines(kernel)[0])
-    assert "caller" in record
+    assert record["caller_id"] == CALLER
 
 
 # ---- Identity: can anyone write anywhere? -----------------------------------
@@ -203,7 +242,9 @@ def test_sycophantic_paragraph_is_flagged():
 
 
 def test_partitions_do_not_see_each_others_history(kernel):
-    kernel.process_transaction("a", OK_TELEMETRY, "fine")
+    kernel.process_transaction(
+        "a", OK_TELEMETRY, "fine", caller_id=CALLER, caller_token=TOKEN
+    )
     assert kernel.ledger_store.get_events_since("b", 0) == []
 
 

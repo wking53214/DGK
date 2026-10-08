@@ -4,6 +4,16 @@ import threading
 
 from dgk import Kernel
 
+CALLER = "tester"
+TOKEN = "tester-token-0123456789abcdef0123456789"
+PARTITIONS = ("p",)
+
+
+def authorize(kernel):
+    kernel.callers.register(CALLER, TOKEN, PARTITIONS)
+    return kernel
+
+
 OK_TELEMETRY = {
     "latency": 134.2,
     "abort_rate": 0.008,
@@ -15,11 +25,17 @@ OK_TELEMETRY = {
 
 def test_concurrent_transactions_keep_sequence_and_audit_consistent():
     log = os.path.join(tempfile.mkdtemp(), "audit.log")
-    kernel = Kernel(log_path=log)
+    kernel = authorize(Kernel(log_path=log))
 
     def worker():
         for _ in range(25):
-            kernel.process_transaction("p", dict(OK_TELEMETRY), "plain text")
+            kernel.process_transaction(
+                "p",
+                dict(OK_TELEMETRY),
+                "plain text",
+                caller_id=CALLER,
+                caller_token=TOKEN,
+            )
 
     threads = [threading.Thread(target=worker) for _ in range(6)]
     for t in threads:
