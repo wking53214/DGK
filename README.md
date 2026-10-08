@@ -63,7 +63,8 @@ reading the code. Tests do not cover them.
 - The token is never stored. The registry keeps only a SHA-256 digest of it,
   so tokens must be long and random. The check is only as strong as the
   secrecy of those tokens; there is no key rotation or revocation yet.
-- Refusals are signed and recorded, with the caller and the reason.
+- Refusals are signed and recorded, with the caller, the reason, and a cause
+  (IDENTITY, PERIMETER, HEALTH_LIMIT, or MANIFEST).
 
 **Concurrency**
 - The name says "distributed." It is one process. Event appends are guarded by
