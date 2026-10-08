@@ -29,11 +29,12 @@ you rely on the record for anything.
    request writes nothing to the ledger or the audit file. This is tested and
    is deliberate, but it means a refusal leaves no trace.
 3. Checks a set of invariants. The only invariant can never fail (see gaps).
-4. Commits the event to an in-memory ledger.
+4. Commits the event to the ledger file, which is verified on every load.
 5. Checks the text for sycophantic phrasing and first-person identity
    language, and replaces a short list of jargon words. Findings are recorded.
    Nothing is blocked on this step.
-6. Writes one JSON line to the audit file.
+6. Writes one signed, chained JSON line to the audit file. A refused
+   request writes one signed refusal line instead.
 
 Breaches of the health limits (latency above 500, abort rate above 0.25, retry
 rate above 2.0) reject the transaction. A rejected transaction writes nothing
@@ -45,26 +46,28 @@ These are the gaps between the design and the code. Each one is confirmed by
 reading the code. Tests do not cover them.
 
 **Record and proof**
-- The ledger exists only in memory. It is lost on restart, and there is no
-  function to verify its hash chain.
-- The audit file lines are not chained and not signed. Signing helpers exist
-  but nothing calls them. Replaying the audit file reads lines and checks
-  nothing.
+- The ledger is append-only and verified on load, but removing its newest
+  events is not detectable without an external anchor (for example a
+  published head hash). A tampered middle event or line is detected.
 - The audit line is written after the ledger commit. A crash between the two
   leaves a commit with no audit line.
-- A rejected request leaves no record at all.
+- The audit key sits on the same machine as the trail. Anyone who can read
+  the key can forge new records, so the trail proves tampering only against
+  someone who lacks the key.
 
 **Identity**
-- Every transaction is recorded under the same fixed internal actor and
-  policy. The caller is not identified or checked.
-- The caller also chooses the partition name, so any caller can write to any
-  partition.
+- Callers are checked. Each caller must present a token that matches a
+  registered digest, and may write only to the partitions it was granted.
+  Requests from anyone else are rejected before any state changes.
+- The token is never stored. The registry keeps only a SHA-256 digest of it,
+  so tokens must be long and random. The check is only as strong as the
+  secrecy of those tokens; there is no key rotation or revocation yet.
+- Refusals are signed and recorded, with the caller and the reason.
 
 **Concurrency**
 - The name says "distributed." It is one process. Event appends are guarded by
-  a lock, so concurrent calls cannot share a sequence number. The whole
-  transaction is not atomic: the manifest check and the commit are separate
-  steps.
+  a lock, and each whole transaction runs under one lock, so concurrent calls
+  cannot share a sequence number or both pass the manifest check.
 
 **Blocking and invariants**
 - The only invariant (a critical state must have a logged escalation) can
@@ -94,7 +97,7 @@ reading the code. Tests do not cover them.
 - Rejected requests leave the ledger and audit file untouched.
 - A healthy transaction commits and its text is normalized.
 - A health breach rejects the transaction and writes nothing.
-- 53 tests pass and 9 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
+- 88 tests pass and 5 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
 
 ## Running it
 
@@ -102,7 +105,7 @@ reading the code. Tests do not cover them.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 53 tests, 9 expected failures
+python3 -m pytest tests/ -q           # 88 tests, 5 expected failures
 ```
 
 ```python
@@ -110,6 +113,11 @@ from dgk import Kernel
 
 # log_path (or DGK_AUDIT_LOG) is required; the file is created owner-only (0600)
 kernel = Kernel(log_path="audit.log")
+# token: a long random string you generate and keep secret (for example
+# secrets.token_urlsafe(32)). Only its digest is stored.
+# Register each caller once. Nothing can act until a caller is registered.
+kernel.callers.register("ops-east", token, partitions=["region-us-east"])
+
 result = kernel.process_transaction(
     partition_id="region-us-east",
     telemetry_map={
@@ -120,6 +128,8 @@ result = kernel.process_transaction(
         "determinism_index": 0.998,
     },
     text_payload="We are utilizing holistic paradigms.",
+    caller_id="ops-east",
+    caller_token=token,
 )
 # -> transaction_status COMMITTED, a block hash, a ledger sequence number,
 #    and scrubbed text "We are using complete models."
@@ -129,15 +139,21 @@ result = kernel.process_transaction(
 
 - `taxonomy.py`: regimes, telemetry payloads, provenance, events
 - `serialization.py`: canonical JSON and helpers (see gaps on rounding)
-- `audit.py`: owner-only audit file, HMAC helpers (not on the write path)
-- `ledger.py`: in-memory hash-chained event store, reducer, invariants, snapshots
+- `audit.py`: owner-only, signed and chained audit trail, with its own key file
+- `ledger.py`: hash-chained event store (append-only file, verified on load), reducer, invariants, snapshots
 - `linguistics.py`: text checks and jargon normalization
 - `stability.py`: running statistics, entropy, energy, regime classifier with hysteresis, optional reservoir
 - `interceptors.py`: perimeter rules and the rule registry
+- `identity.py`: caller tokens (digests only) and partition grants
 - `kernel.py`: wires the pieces into one transaction
 
 ## Known open items
 
-Caller identity, signed and chained audit records, a persistent ledger with a
-verify step. None of these are built yet. Sequence numbers are now locked per
-partition, and numbers are rounded to six decimal places before hashing.
+Nothing from the upgrade list is open. Done: sequence numbers locked per
+partition, each transaction under one lock, numbers rounded to six decimal
+places before hashing, callers checked by token and partition, the audit trail
+signed and chained with refusals recorded, and the ledger persisted and
+verified on load.
+
+Still open: an external anchor so that truncating the newest events is
+detectable.

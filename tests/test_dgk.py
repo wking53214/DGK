@@ -33,6 +33,16 @@ from dgk import (
     verify_record,
 )
 
+CALLER = "tester"
+TOKEN = "tester-token-0123456789abcdef0123456789"
+PARTITIONS = ("part",)
+
+
+def authorize(kernel):
+    kernel.callers.register(CALLER, TOKEN, PARTITIONS)
+    return kernel
+
+
 HEALTHY = {
     "latency": 134.2,
     "abort_rate": 0.008,
@@ -49,7 +59,7 @@ JARGON = (
 @pytest.fixture
 def kernel():
     path = os.path.join(tempfile.mkdtemp(), "wal.log")
-    k = Kernel(log_path=path)
+    k = authorize(Kernel(log_path=path))
     yield k
     k.audit_logger.close_stream()
 
@@ -303,7 +313,9 @@ def test_welford_is_defined_for_a_single_sample():
 
 
 def test_healthy_transaction_commits_and_scrubs(kernel):
-    out = kernel.process_transaction("part", HEALTHY, JARGON)
+    out = kernel.process_transaction(
+        "part", HEALTHY, JARGON, caller_id=CALLER, caller_token=TOKEN
+    )
     assert out["transaction_status"] in {"COMMITTED", "WARNING_FLAGGED"}
     assert "utilizing" not in out["scrubbed_text"]
     assert out["block_hash"]
@@ -311,30 +323,42 @@ def test_healthy_transaction_commits_and_scrubs(kernel):
 
 
 def test_forbidden_content_is_rejected_before_anything_commits(kernel):
-    out = kernel.process_transaction("part", HEALTHY, "this is forbidden")
+    out = kernel.process_transaction(
+        "part", HEALTHY, "this is forbidden", caller_id=CALLER, caller_token=TOKEN
+    )
     assert out["transaction_status"] == "REJECTED"
     assert "block_hash" not in out
     assert kernel.ledger_store.get_events_since("part", 0) == []
 
 
 def test_each_commit_advances_the_ledger(kernel):
-    first = kernel.process_transaction("part", HEALTHY, "one")
-    second = kernel.process_transaction("part", HEALTHY, "two")
+    first = kernel.process_transaction(
+        "part", HEALTHY, "one", caller_id=CALLER, caller_token=TOKEN
+    )
+    second = kernel.process_transaction(
+        "part", HEALTHY, "two", caller_id=CALLER, caller_token=TOKEN
+    )
     assert second["ledger_sequence"] == first["ledger_sequence"] + 1
     assert first["block_hash"] != second["block_hash"]
 
 
 def test_committed_transactions_reach_the_audit_log(kernel):
-    kernel.process_transaction("part", HEALTHY, JARGON)
+    kernel.process_transaction(
+        "part", HEALTHY, JARGON, caller_id=CALLER, caller_token=TOKEN
+    )
     records = kernel.audit_logger.replay_log_history()
     assert len(records) == 1
     assert records[0]["partition_id"] == "part"
     assert records[0]["blockchain_hash_head"]
 
 
-def test_rejected_transactions_do_not_reach_the_audit_log(kernel):
-    kernel.process_transaction("part", HEALTHY, "forbidden")
-    assert kernel.audit_logger.replay_log_history() == []
+def test_rejected_transactions_reach_the_audit_log_only_as_refusals(kernel):
+    kernel.process_transaction(
+        "part", HEALTHY, "forbidden", caller_id=CALLER, caller_token=TOKEN
+    )
+    records = kernel.audit_logger.replay_log_history()
+    assert [r["event"] for r in records] == ["refused"]
+    assert all("transaction_status" not in r for r in records)
 
 
 def test_wal_records_are_valid_json_lines():
@@ -437,7 +461,7 @@ def test_kernel_requires_a_log_path(monkeypatch):
 def test_kernel_reads_the_log_path_from_the_environment(monkeypatch, tmp_path):
     path = tmp_path / "env.log"
     monkeypatch.setenv("DGK_AUDIT_LOG", str(path))
-    kernel = Kernel()
+    kernel = authorize(Kernel())
     try:
         assert path.exists()
     finally:
@@ -447,7 +471,7 @@ def test_kernel_reads_the_log_path_from_the_environment(monkeypatch, tmp_path):
 def test_an_explicit_log_path_wins_over_the_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("DGK_AUDIT_LOG", str(tmp_path / "env.log"))
     explicit = tmp_path / "explicit.log"
-    kernel = Kernel(log_path=str(explicit))
+    kernel = authorize(Kernel(log_path=str(explicit)))
     try:
         assert explicit.exists()
         assert not (tmp_path / "env.log").exists()

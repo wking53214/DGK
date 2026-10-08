@@ -82,6 +82,7 @@ from .interceptors import (
     RequestBuilder,
     HealthLimitCheck,
 )
+from .identity import CallerRegistry
 from .kernel import Kernel
 
 __all__ = [
@@ -125,6 +126,7 @@ __all__ = [
     "Reservoir",
     "Rule",
     "RuleRegistry",
+    "CallerRegistry",
     "RequestBuilder",
     "ForbiddenWordRule",
     "HealthLimitCheck",
