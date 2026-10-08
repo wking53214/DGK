@@ -19,7 +19,6 @@ class Regime(Enum):
     RESOURCE_SATURATED = auto()
     STOCHASTIC_CONFUSION = auto()
     ANOMALOUS_DRIFT = auto()
-    CRITICAL_PANIC = auto()
 
 
 REGIME_SEVERITY = {
@@ -28,7 +27,6 @@ REGIME_SEVERITY = {
     Regime.RESOURCE_SATURATED: 3,
     Regime.STOCHASTIC_CONFUSION: 4,
     Regime.ANOMALOUS_DRIFT: 5,
-    Regime.CRITICAL_PANIC: 6,
 }
 
 

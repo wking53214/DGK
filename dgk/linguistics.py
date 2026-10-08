@@ -139,9 +139,9 @@ class TextChecker:
 
         for segment in text_segments:
             isolated_clauses_list = isolate_clauses(segment)
-            active_context = categorize_text_context(segment)
+            context_domain = categorize_text_context(segment)
             runtime_thresholds = compute_scaled_thresholds(
-                self.base_thresholds, active_context
+                self.base_thresholds, context_domain
             )
 
             aggregated_identity_score = 0.0
