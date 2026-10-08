@@ -7,6 +7,7 @@ anything reaches the ledger, and the write-ahead log replayed afterwards.
 
 import json
 import os
+import secrets
 import tempfile
 
 from dgk import SYSTEM_NAME, SYSTEM_VERSION, Kernel
@@ -23,20 +24,24 @@ JARGON = (
     "granular and suboptimal systems."
 )
 PARTITION = "region-us-east-production"
+CALLER = "demo-operator"
 
 
 def main() -> None:
     print(f"Loading {SYSTEM_NAME} (v{SYSTEM_VERSION})...")
     log_path = os.path.join(tempfile.mkdtemp(prefix="dgk-demo-"), "audit.log")
     kernel = Kernel(log_path=log_path)
+    # A fresh random token per run; the registry keeps only its digest.
+    token = secrets.token_urlsafe(32)
+    kernel.callers.register(CALLER, token, [PARTITION])
 
     print("\n--- Phase 1: structural state ingestion ---")
-    committed = kernel.process_transaction(PARTITION, TELEMETRY, JARGON)
+    committed = kernel.process_transaction(PARTITION, TELEMETRY, JARGON, CALLER, token)
     print(json.dumps(committed, indent=4))
 
     print("\n--- Phase 2: perimeter rejection ---")
     rejected = kernel.process_transaction(
-        PARTITION, TELEMETRY, "this text is forbidden"
+        PARTITION, TELEMETRY, "this text is forbidden", CALLER, token
     )
     print(json.dumps(rejected, indent=4))
     print("  Nothing was committed: the ledger head is unchanged and the")

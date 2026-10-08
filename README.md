@@ -55,10 +55,13 @@ reading the code. Tests do not cover them.
 - A rejected request leaves no record at all.
 
 **Identity**
-- Every transaction is recorded under the same fixed internal actor and
-  policy. The caller is not identified or checked.
-- The caller also chooses the partition name, so any caller can write to any
-  partition.
+- Callers are checked. Each caller must present a token that matches a
+  registered digest, and may write only to the partitions it was granted.
+  Requests from anyone else are rejected before any state changes.
+- The token is never stored. The registry keeps only a SHA-256 digest of it,
+  so tokens must be long and random. The check is only as strong as the
+  secrecy of those tokens; there is no key rotation or revocation yet.
+- Refused requests still leave no record (see the record gap above).
 
 **Concurrency**
 - The name says "distributed." It is one process. Event appends are guarded by
@@ -93,7 +96,7 @@ reading the code. Tests do not cover them.
 - Rejected requests leave the ledger and audit file untouched.
 - A healthy transaction commits and its text is normalized.
 - A health breach rejects the transaction and writes nothing.
-- 53 tests pass and 9 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
+- 68 tests pass and 8 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
 
 ## Running it
 
@@ -101,7 +104,7 @@ reading the code. Tests do not cover them.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 53 tests, 9 expected failures
+python3 -m pytest tests/ -q           # 68 tests, 8 expected failures
 ```
 
 ```python
@@ -109,6 +112,11 @@ from dgk import Kernel
 
 # log_path (or DGK_AUDIT_LOG) is required; the file is created owner-only (0600)
 kernel = Kernel(log_path="audit.log")
+# token: a long random string you generate and keep secret (for example
+# secrets.token_urlsafe(32)). Only its digest is stored.
+# Register each caller once. Nothing can act until a caller is registered.
+kernel.callers.register("ops-east", token, partitions=["region-us-east"])
+
 result = kernel.process_transaction(
     partition_id="region-us-east",
     telemetry_map={
@@ -119,6 +127,8 @@ result = kernel.process_transaction(
         "determinism_index": 0.998,
     },
     text_payload="We are utilizing holistic paradigms.",
+    caller_id="ops-east",
+    caller_token=token,
 )
 # -> transaction_status COMMITTED, a block hash, a ledger sequence number,
 #    and scrubbed text "We are using complete models."
@@ -133,10 +143,12 @@ result = kernel.process_transaction(
 - `linguistics.py`: text checks and jargon normalization
 - `stability.py`: running statistics, entropy, energy, regime classifier with hysteresis, optional reservoir
 - `interceptors.py`: perimeter rules and the rule registry
+- `identity.py`: caller tokens (digests only) and partition grants
 - `kernel.py`: wires the pieces into one transaction
 
 ## Known open items
 
-Caller identity, signed and chained audit records, a persistent ledger with a
-verify step. None of these are built yet. Sequence numbers are now locked per
-partition, and numbers are rounded to six decimal places before hashing.
+Signed and chained audit records, and a persistent ledger with a verify step.
+Neither is built yet. Done so far: sequence numbers are locked per partition,
+each transaction runs under one lock, numbers are rounded to six decimal places
+before hashing, and callers are checked by token and partition.
