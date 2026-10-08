@@ -44,8 +44,8 @@ def main() -> None:
         PARTITION, TELEMETRY, "this text is forbidden", CALLER, token
     )
     print(json.dumps(rejected, indent=4))
-    print("  Nothing was committed: the ledger head is unchanged and the")
-    print("  write-ahead log has no record of the rejected request.")
+    print("  Nothing was committed: the ledger head is unchanged. The write-ahead")
+    print("  log holds one signed refusal entry for the request, and nothing else.")
 
     print("\n--- Phase 3: materialized state from the ledger ---")
     state = kernel.materialization_runtime.materialize_state(PARTITION)
