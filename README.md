@@ -29,7 +29,7 @@ you rely on the record for anything.
    request writes nothing to the ledger or the audit file. This is tested and
    is deliberate, but it means a refusal leaves no trace.
 3. Checks a set of invariants. The only invariant can never fail (see gaps).
-4. Commits the event to an in-memory ledger.
+4. Commits the event to the ledger file, which is verified on every load.
 5. Checks the text for sycophantic phrasing and first-person identity
    language, and replaces a short list of jargon words. Findings are recorded.
    Nothing is blocked on this step.
@@ -46,8 +46,9 @@ These are the gaps between the design and the code. Each one is confirmed by
 reading the code. Tests do not cover them.
 
 **Record and proof**
-- The ledger exists only in memory. It is lost on restart, and there is no
-  function to verify its hash chain.
+- The ledger is append-only and verified on load, but removing its newest
+  events is not detectable without an external anchor (for example a
+  published head hash). A tampered middle event or line is detected.
 - The audit line is written after the ledger commit. A crash between the two
   leaves a commit with no audit line.
 - The audit key sits on the same machine as the trail. Anyone who can read
@@ -96,7 +97,7 @@ reading the code. Tests do not cover them.
 - Rejected requests leave the ledger and audit file untouched.
 - A healthy transaction commits and its text is normalized.
 - A health breach rejects the transaction and writes nothing.
-- 80 tests pass and 5 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
+- 88 tests pass and 5 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
 
 ## Running it
 
@@ -104,7 +105,7 @@ reading the code. Tests do not cover them.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 80 tests, 5 expected failures
+python3 -m pytest tests/ -q           # 88 tests, 5 expected failures
 ```
 
 ```python
@@ -139,7 +140,7 @@ result = kernel.process_transaction(
 - `taxonomy.py`: regimes, telemetry payloads, provenance, events
 - `serialization.py`: canonical JSON and helpers (see gaps on rounding)
 - `audit.py`: owner-only, signed and chained audit trail, with its own key file
-- `ledger.py`: in-memory hash-chained event store, reducer, invariants, snapshots
+- `ledger.py`: hash-chained event store (append-only file, verified on load), reducer, invariants, snapshots
 - `linguistics.py`: text checks and jargon normalization
 - `stability.py`: running statistics, entropy, energy, regime classifier with hysteresis, optional reservoir
 - `interceptors.py`: perimeter rules and the rule registry
@@ -148,9 +149,11 @@ result = kernel.process_transaction(
 
 ## Known open items
 
-Not built yet: a persistent ledger with a verify step.
+Nothing from the upgrade list is open. Done: sequence numbers locked per
+partition, each transaction under one lock, numbers rounded to six decimal
+places before hashing, callers checked by token and partition, the audit trail
+signed and chained with refusals recorded, and the ledger persisted and
+verified on load.
 
-Done so far: sequence numbers are locked per partition, each transaction runs
-under one lock, numbers are rounded to six decimal places before hashing,
-callers are checked by token and partition, and the audit trail is signed and
-chained, with refusals recorded.
+Still open: an external anchor so that truncating the newest events is
+detectable.
