@@ -93,7 +93,6 @@ def test_non_finite_telemetry_is_rejected(kernel):
     assert result["transaction_status"] == "REJECTED"
 
 
-@pytest.mark.xfail(strict=True, reason="a health breach is flagged but still committed")
 def test_health_breach_blocks_the_commit(kernel):
     result = kernel.process_transaction("p", dict(OK_TELEMETRY, latency=900.0), "fine")
     assert result["transaction_status"] != "COMMITTED"
