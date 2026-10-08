@@ -134,12 +134,10 @@ class RegimeClassifier:
     def resolve_payload_regime(
         self, payload: TelemetryReading
     ) -> Tuple[Regime, float, float]:
-        historical_stats = self.analytics_orchestrator.register_payload(payload)
-        ceilings_reference = TelemetryLimits()
-        computed_entropy = calculate_entropy(payload, ceilings_reference)
-        computed_energy = calculate_deviation_score(
-            payload, historical_stats, EnergyWeights()
-        )
+        stats = self.analytics_orchestrator.register_payload(payload)
+        ceilings = TelemetryLimits()
+        computed_entropy = calculate_entropy(payload, ceilings)
+        computed_energy = calculate_deviation_score(payload, stats, EnergyWeights())
 
         if payload.determinism_index > 0.85 and computed_energy > 3:
             return Regime.ANOMALOUS_DRIFT, computed_entropy, computed_energy
@@ -149,14 +147,14 @@ class RegimeClassifier:
                 computed_entropy,
                 computed_energy,
             )
-        if payload.load_depth > 0.85 * ceilings_reference.MAX_LOAD_DEPTH:
+        if payload.load_depth > 0.85 * ceilings.MAX_LOAD_DEPTH:
             return (
                 Regime.RESOURCE_SATURATED,
                 computed_entropy,
                 computed_energy,
             )
 
-        latency_mean, latency_std = historical_stats["latency"]
+        latency_mean, latency_std = stats["latency"]
         if payload.latency > latency_mean + 2 * latency_std:
             return Regime.TRANSIENT_SURGE, computed_entropy, computed_energy
 
