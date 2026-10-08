@@ -36,7 +36,8 @@ you rely on the record for anything.
 6. Writes one JSON line to the audit file.
 
 Breaches of the health limits (latency above 500, abort rate above 0.25, retry
-rate above 2.0) are flagged. The transaction is still committed.
+rate above 2.0) reject the transaction. A rejected transaction writes nothing
+to the ledger or the audit file.
 
 ## Known gaps
 
@@ -60,12 +61,12 @@ reading the code. Tests do not cover them.
   partition.
 
 **Concurrency**
-- The name says "distributed." It is one process. The ledger imports a lock
-  and never uses it, so concurrent calls can be given the same sequence
-  number.
+- The name says "distributed." It is one process. Event appends are guarded by
+  a lock, so concurrent calls cannot share a sequence number. The whole
+  transaction is not atomic: the manifest check and the commit are separate
+  steps.
 
 **Blocking and invariants**
-- Health breaches are flagged but do not stop a commit.
 - The only invariant (a critical state must have a logged escalation) can
   never fail. The kernel never creates a status change event, and the
   classifier never returns the top regime.
@@ -93,7 +94,8 @@ reading the code. Tests do not cover them.
 - Regime escalation and recovery, including the recovery streak.
 - Rejected requests leave the ledger and audit file untouched.
 - A healthy transaction commits and its text is normalized.
-- 43 tests pass. CI runs the tests and the demo on Python 3.10 to 3.13.
+- A health breach rejects the transaction and writes nothing.
+- 53 tests pass and 9 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
 
 ## Running it
 
@@ -101,7 +103,7 @@ reading the code. Tests do not cover them.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 43 tests
+python3 -m pytest tests/ -q           # 53 tests, 9 expected failures
 ```
 
 ```python
@@ -138,5 +140,5 @@ result = kernel.process_transaction(
 ## Known open items
 
 Caller identity, signed and chained audit records, a persistent ledger with a
-verify step, a lock on sequence numbers, blocking gates for breaches, and a
-single rounding policy before hashing. None of these are built yet.
+verify step, and a single rounding policy before hashing. None of these are
+built yet. Sequence numbers are now locked per partition.
