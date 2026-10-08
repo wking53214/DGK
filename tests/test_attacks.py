@@ -165,13 +165,6 @@ def test_audit_records_name_the_caller(kernel):
 # ---- Concurrency ------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "unlocked sequence numbering: concurrent appends can share a number (race; may "
-        "pass on some runs) "
-    ),
-)
 def test_concurrent_appends_get_unique_sequence_numbers():
     store = EventStore()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import threading
 import uuid
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -45,6 +46,9 @@ class EventStore:
         self._partition_streams: Dict[str, List[Event]] = {}
         self._partition_heads: Dict[str, str] = {}
         self._hashing_strategy = hashing_strategy or Sha256Chain()
+        # Guards sequence numbering and the head hash so concurrent appends
+        # to one partition cannot share a sequence number or fork the chain.
+        self._lock = threading.Lock()
 
     def append_event(
         self,
@@ -53,26 +57,27 @@ class EventStore:
         delta: Dict[str, Any],
         provenance: Provenance,
     ) -> Tuple[Event, str]:
-        stream = self._partition_streams.setdefault(entity_id, [])
-        next_sequence_no = len(stream) + 1
+        with self._lock:
+            stream = self._partition_streams.setdefault(entity_id, [])
+            next_sequence_no = len(stream) + 1
 
-        event_instance = Event(
-            event_id=str(uuid.uuid4()),
-            entity_id=entity_id,
-            sequence_no=next_sequence_no,
-            event_type=event_type,
-            delta=copy.deepcopy(delta),
-            provenance=provenance,
-        )
+            event_instance = Event(
+                event_id=str(uuid.uuid4()),
+                entity_id=entity_id,
+                sequence_no=next_sequence_no,
+                event_type=event_type,
+                delta=copy.deepcopy(delta),
+                provenance=provenance,
+            )
 
-        genesis_hash = self._partition_heads.get(entity_id, "GENESIS")
-        computed_hash = self._hashing_strategy.compute_hash(
-            genesis_hash, event_instance
-        )
+            genesis_hash = self._partition_heads.get(entity_id, "GENESIS")
+            computed_hash = self._hashing_strategy.compute_hash(
+                genesis_hash, event_instance
+            )
 
-        stream.append(event_instance)
-        self._partition_heads[entity_id] = computed_hash
-        return event_instance, computed_hash
+            stream.append(event_instance)
+            self._partition_heads[entity_id] = computed_hash
+            return event_instance, computed_hash
 
     def get_events_since(self, entity_id: str, sequence_no: int) -> List[Event]:
         stream = self._partition_streams.get(entity_id, [])
