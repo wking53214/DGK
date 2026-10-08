@@ -33,7 +33,8 @@ you rely on the record for anything.
 5. Checks the text for sycophantic phrasing and first-person identity
    language, and replaces a short list of jargon words. Findings are recorded.
    Nothing is blocked on this step.
-6. Writes one JSON line to the audit file.
+6. Writes one signed, chained JSON line to the audit file. A refused
+   request writes one signed refusal line instead.
 
 Breaches of the health limits (latency above 500, abort rate above 0.25, retry
 rate above 2.0) reject the transaction. A rejected transaction writes nothing
@@ -47,12 +48,11 @@ reading the code. Tests do not cover them.
 **Record and proof**
 - The ledger exists only in memory. It is lost on restart, and there is no
   function to verify its hash chain.
-- The audit file lines are not chained and not signed. Signing helpers exist
-  but nothing calls them. Replaying the audit file reads lines and checks
-  nothing.
 - The audit line is written after the ledger commit. A crash between the two
   leaves a commit with no audit line.
-- A rejected request leaves no record at all.
+- The audit key sits on the same machine as the trail. Anyone who can read
+  the key can forge new records, so the trail proves tampering only against
+  someone who lacks the key.
 
 **Identity**
 - Callers are checked. Each caller must present a token that matches a
@@ -61,7 +61,7 @@ reading the code. Tests do not cover them.
 - The token is never stored. The registry keeps only a SHA-256 digest of it,
   so tokens must be long and random. The check is only as strong as the
   secrecy of those tokens; there is no key rotation or revocation yet.
-- Refused requests still leave no record (see the record gap above).
+- Refusals are signed and recorded, with the caller and the reason.
 
 **Concurrency**
 - The name says "distributed." It is one process. Event appends are guarded by
@@ -96,7 +96,7 @@ reading the code. Tests do not cover them.
 - Rejected requests leave the ledger and audit file untouched.
 - A healthy transaction commits and its text is normalized.
 - A health breach rejects the transaction and writes nothing.
-- 68 tests pass and 8 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
+- 80 tests pass and 5 documented gaps are marked as expected failures. CI runs the tests and the demo on Python 3.10 to 3.13.
 
 ## Running it
 
@@ -104,7 +104,7 @@ reading the code. Tests do not cover them.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 68 tests, 8 expected failures
+python3 -m pytest tests/ -q           # 80 tests, 5 expected failures
 ```
 
 ```python
@@ -138,7 +138,7 @@ result = kernel.process_transaction(
 
 - `taxonomy.py`: regimes, telemetry payloads, provenance, events
 - `serialization.py`: canonical JSON and helpers (see gaps on rounding)
-- `audit.py`: owner-only audit file, HMAC helpers (not on the write path)
+- `audit.py`: owner-only, signed and chained audit trail, with its own key file
 - `ledger.py`: in-memory hash-chained event store, reducer, invariants, snapshots
 - `linguistics.py`: text checks and jargon normalization
 - `stability.py`: running statistics, entropy, energy, regime classifier with hysteresis, optional reservoir
@@ -148,7 +148,9 @@ result = kernel.process_transaction(
 
 ## Known open items
 
-Signed and chained audit records, and a persistent ledger with a verify step.
-Neither is built yet. Done so far: sequence numbers are locked per partition,
-each transaction runs under one lock, numbers are rounded to six decimal places
-before hashing, and callers are checked by token and partition.
+Not built yet: a persistent ledger with a verify step.
+
+Done so far: sequence numbers are locked per partition, each transaction runs
+under one lock, numbers are rounded to six decimal places before hashing,
+callers are checked by token and partition, and the audit trail is signed and
+chained, with refusals recorded.

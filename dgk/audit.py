@@ -4,37 +4,94 @@ import hashlib
 import hmac
 import json
 import os
-from typing import Any, Dict, List
+import secrets
+from typing import Any, Dict, List, Optional
 
 from .serialization import to_canonical_json, drop_private_fields
 
 
 # WRITE-AHEAD LOGGING AUDIT CHANNEL
 # ============================================================
-class AuditLog:
-    """Append-only transaction logger handling structural engine storage operations."""
+_GENESIS = "GENESIS"
+_KEY_BYTES = 32
 
-    def __init__(self, storage_path: str):
+
+def _no_follow() -> int:
+    return getattr(os, "O_NOFOLLOW", 0)
+
+
+def load_or_create_key(key_path: str) -> bytes:
+    """Return the audit signing key, creating a random one owner-only on first use.
+
+    The key lives in its own file, never in the audit trail. Refuses a key
+    file that other users can read or write.
+    """
+    try:
+        fd = os.open(
+            key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _no_follow(), 0o600
+        )
+    except FileExistsError:
+        pass
+    else:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(secrets.token_bytes(_KEY_BYTES))
+    fd = os.open(key_path, os.O_RDONLY | _no_follow())
+    with os.fdopen(fd, "rb") as handle:
+        if os.fstat(handle.fileno()).st_mode & 0o077:
+            raise PermissionError(f"audit key file must be owner-only: {key_path}")
+        key = handle.read()
+    if len(key) != _KEY_BYTES:
+        raise ValueError(f"audit key file is malformed: {key_path}")
+    return key
+
+
+class AuditLog:
+    """Append-only transaction logger. Each line is signed and chained to the previous one."""
+
+    def __init__(self, storage_path: str, key_path: Optional[str] = None):
         self.storage_path = storage_path
         if os.path.dirname(storage_path):
             os.makedirs(os.path.dirname(storage_path), exist_ok=True)
         # Owner-only permissions, and refuse to follow a symlink planted at
         # the path, so another local user cannot read the trail or redirect
         # the writes into a file of their choosing.
-        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | _no_follow()
         fd = os.open(storage_path, flags, 0o600)
         self.file_descriptor = os.fdopen(fd, "a+", encoding="utf-8", buffering=1)
+        self._key = load_or_create_key(key_path or storage_path + ".key")
+        self._last_signature = _GENESIS
+        # Refuse to continue on top of a trail that has already been altered.
+        for record in self.replay_log_history():
+            self._last_signature = record["signature"]
 
     def append_record(self, record: Dict[str, Any]) -> None:
-        self.file_descriptor.write(to_canonical_json(record) + "\n")
+        entry = {**record, "prev_signature": self._last_signature}
+        entry["signature"] = sign_record(entry, self._key)
+        self.file_descriptor.write(to_canonical_json(entry) + "\n")
+        self._last_signature = entry["signature"]
 
     def close_stream(self) -> None:
         self.file_descriptor.close()
 
     def replay_log_history(self) -> List[Dict[str, Any]]:
+        """Return every record after checking the signatures and the chain.
+
+        Raises ValueError at the first record that was edited, removed,
+        reordered, or signed with another key.
+        """
         self.file_descriptor.flush()
         with open(self.storage_path, "r", encoding="utf-8") as file_reader:
-            return [json.loads(line) for line in file_reader if line.strip()]
+            records = [json.loads(line) for line in file_reader if line.strip()]
+        previous = _GENESIS
+        for index, record in enumerate(records, start=1):
+            body = {k: v for k, v in record.items() if k != "signature"}
+            if body.get("prev_signature") != previous:
+                raise ValueError(f"audit chain broken at record {index}")
+            expected = sign_record(body, self._key)
+            if not hmac.compare_digest(str(record.get("signature", "")), expected):
+                raise ValueError(f"audit signature invalid at record {index}")
+            previous = record["signature"]
+        return records
 
 
 # ============================================================

@@ -35,6 +35,7 @@ class Kernel:
         self,
         log_path: Optional[str] = None,
         callers: Optional[CallerRegistry] = None,
+        key_path: Optional[str] = None,
     ) -> None:
         # No shared default: the old /tmp/gov4_central_ssot.log was readable
         # and pre-creatable by any local user. The caller (or DGK_AUDIT_LOG)
@@ -42,7 +43,7 @@ class Kernel:
         log_path = log_path or os.environ.get("DGK_AUDIT_LOG")
         if not log_path:
             raise ValueError("pass log_path= or set DGK_AUDIT_LOG")
-        self.audit_logger = AuditLog(log_path)
+        self.audit_logger = AuditLog(log_path, key_path)
         # Empty by default: no caller can act until one is registered.
         self.callers = callers or CallerRegistry()
         self.ledger_store = EventStore()
@@ -84,6 +85,31 @@ class Kernel:
                 partition_id, telemetry_map, text_payload, caller_id, caller_token
             )
 
+    def _refuse(
+        self,
+        partition_id: str,
+        caller_id: str,
+        reason: str,
+        telemetry_metrics: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Record a refusal in the signed audit trail, then return the rejection."""
+        self.audit_logger.append_record(
+            {
+                "event": "refused",
+                "partition_id": partition_id,
+                "caller_id": caller_id,
+                "timestamp": time.time(),
+                "reason": str(reason),
+            }
+        )
+        result: Dict[str, Any] = {
+            "transaction_status": "REJECTED",
+            "exception_details": reason,
+        }
+        if telemetry_metrics is not None:
+            result["telemetry_metrics"] = telemetry_metrics
+        return result
+
     def _run_transaction(
         self,
         partition_id: str,
@@ -94,10 +120,9 @@ class Kernel:
     ) -> Dict[str, Any]:
         # Checked first, so an unauthorized request cannot change regime state.
         if not self.callers.authorizes(caller_id, caller_token, partition_id):
-            return {
-                "transaction_status": "REJECTED",
-                "exception_details": "caller is not authorized for this partition",
-            }
+            return self._refuse(
+                partition_id, caller_id, "caller is not authorized for this partition"
+            )
 
         """Steps: read telemetry and classify the regime, screen the text at the
         perimeter, verify the transition against the manifest, commit to the
@@ -109,18 +134,20 @@ class Kernel:
 
         perimeter_check = self._check_perimeter(text_payload)
         if not perimeter_check.passed:
-            return {
-                "transaction_status": "REJECTED",
-                "exception_details": perimeter_check.details,
-                "telemetry_metrics": stability_metrics,
-            }
+            return self._refuse(
+                partition_id,
+                caller_id,
+                perimeter_check.details,
+                telemetry_metrics=stability_metrics,
+            )
 
         if not boundary_pass:
-            return {
-                "transaction_status": "REJECTED",
-                "exception_details": f"Health limits breached: {boundary_faults}",
-                "telemetry_metrics": stability_metrics,
-            }
+            return self._refuse(
+                partition_id,
+                caller_id,
+                f"Health limits breached: {boundary_faults}",
+                telemetry_metrics=stability_metrics,
+            )
 
         provenance_block = Provenance(
             actor_id=caller_id,
@@ -131,12 +158,11 @@ class Kernel:
             partition_id, telemetry_map, provenance_block
         )
         if not transition_verified:
-            return {
-                "transaction_status": "REJECTED",
-                "exception_details": (
-                    f"Manifest contract breached: {invariant_breaches}"
-                ),
-            }
+            return self._refuse(
+                partition_id,
+                caller_id,
+                f"Manifest contract breached: {invariant_breaches}",
+            )
 
         committed_block, blockchain_head_hash = self.ledger_store.append_event(
             partition_id, "telemetry_update", telemetry_map, provenance_block

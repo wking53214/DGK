@@ -352,11 +352,13 @@ def test_committed_transactions_reach_the_audit_log(kernel):
     assert records[0]["blockchain_hash_head"]
 
 
-def test_rejected_transactions_do_not_reach_the_audit_log(kernel):
+def test_rejected_transactions_reach_the_audit_log_only_as_refusals(kernel):
     kernel.process_transaction(
         "part", HEALTHY, "forbidden", caller_id=CALLER, caller_token=TOKEN
     )
-    assert kernel.audit_logger.replay_log_history() == []
+    records = kernel.audit_logger.replay_log_history()
+    assert [r["event"] for r in records] == ["refused"]
+    assert all("transaction_status" not in r for r in records)
 
 
 def test_wal_records_are_valid_json_lines():
