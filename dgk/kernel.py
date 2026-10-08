@@ -80,6 +80,13 @@ class Kernel:
                 "telemetry_metrics": stability_metrics,
             }
 
+        if not boundary_pass:
+            return {
+                "transaction_status": "REJECTED",
+                "exception_details": f"Health limits breached: {boundary_faults}",
+                "telemetry_metrics": stability_metrics,
+            }
+
         provenance_block = Provenance(
             actor_id="orchestration_kernel_core",
             policy_id="CENTRAL_ORCHESTRATION_MANIFEST",
@@ -119,7 +126,7 @@ class Kernel:
         )
 
         return {
-            "transaction_status": "COMMITTED" if boundary_pass else "WARNING_FLAGGED",
+            "transaction_status": "COMMITTED",
             "scrubbed_text": scrubbed_text_output,
             "compliance_anomalies": linguistic_anomalies,
             "stability_profile": stability_metrics,
