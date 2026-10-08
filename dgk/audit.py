@@ -46,7 +46,7 @@ def load_or_create_key(key_path: str) -> bytes:
 
 
 class AuditLog:
-    """Append-only transaction logger. Each line is signed and chained to the previous one."""
+    """Append-only transaction logger. Each line is signed and chained."""
 
     def __init__(self, storage_path: str, key_path: Optional[str] = None):
         self.storage_path = storage_path
