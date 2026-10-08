@@ -45,7 +45,7 @@ def compute_scaled_thresholds(
 
 
 def split_text_segments(text: str) -> List[str]:
-    """Segments processing texts along natural syntax boundaries and line terminators."""
+    """Splits text into segments at line breaks and sentence ends."""
     raw_fragments = re.split(r"\n+|(?<=[.!?])\s+", text)
     compiled_segments = []
     working_buffer = []
@@ -65,7 +65,9 @@ def split_text_segments(text: str) -> List[str]:
 
 def isolate_clauses(text: str) -> List[str]:
     """Splits structural text segments down to base clause representations."""
-    raw_clauses = re.split(r",|;|—|\bbut\b|\bhowever\b|\bwhile\b", text, flags=re.I)
+    raw_clauses = re.split(
+        r",|;|\u2014|\bbut\b|\bhowever\b|\bwhile\b", text, flags=re.I
+    )
     return [clause.strip() for clause in raw_clauses if clause.strip()]
 
 
