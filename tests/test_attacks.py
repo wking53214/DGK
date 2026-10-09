@@ -102,7 +102,6 @@ def test_rejected_request_is_recorded_as_a_refusal(kernel):
 # ---- Telemetry: can bad readings be committed? ------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="a NaN latency is committed as a normal reading")
 def test_non_finite_telemetry_is_rejected(kernel):
     result = kernel.process_transaction(
         "p",

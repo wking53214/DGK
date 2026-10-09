@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -28,6 +29,10 @@ from .taxonomy import Provenance, TelemetryReading
 
 # GOVERNANCE CENTRAL KERNEL CONCURRENCY ENGINE
 # ============================================================
+class TelemetryError(ValueError):
+    """A telemetry field is missing a usable value: not a number, not finite, or negative."""
+
+
 class Kernel:
     """Combines the rule checks, the ledger, and the stability tracker in one place."""
 
@@ -133,7 +138,13 @@ class Kernel:
         perimeter, verify the transition against the manifest, commit to the
         ledger, check and normalize the text, then write the audit record.
         """
-        telemetry = self._read_telemetry(telemetry_map)
+        # Validated before it reaches the classifier: one NaN would corrupt the running
+        # statistics for the life of the process, and an infinity would raise out of the call
+        # before any refusal was recorded.
+        try:
+            telemetry = self._read_telemetry(telemetry_map)
+        except TelemetryError as exc:
+            return self._refuse(partition_id, caller_id, str(exc), "TELEMETRY_INVALID")
         stability_metrics = self.hysteresis_chassis.process_telemetry_step(telemetry)
         boundary_pass, boundary_faults = self.boundary_barrier.verify_bounds(telemetry)
 
@@ -206,14 +217,27 @@ class Kernel:
 
     @staticmethod
     def _read_telemetry(telemetry_map: Dict[str, Any]) -> TelemetryReading:
-        """Coerce the raw telemetry map to floats, with defaults for missing keys."""
-        return TelemetryReading(
-            latency=float(telemetry_map.get("latency", 0.0)),
-            abort_rate=float(telemetry_map.get("abort_rate", 0.0)),
-            reentry_rate=float(telemetry_map.get("reentry_rate", 0.0)),
-            load_depth=float(telemetry_map.get("load_depth", 0.0)),
-            determinism_index=float(telemetry_map.get("determinism_index", 1.0)),
+        """Coerce the raw telemetry map to floats, with defaults for missing keys.
+
+        Raises TelemetryError for a value that is not a finite, non-negative number.
+        """
+        defaults = (
+            ("latency", 0.0),
+            ("abort_rate", 0.0),
+            ("reentry_rate", 0.0),
+            ("load_depth", 0.0),
+            ("determinism_index", 1.0),
         )
+        values: Dict[str, float] = {}
+        for name, default in defaults:
+            try:
+                value = float(telemetry_map.get(name, default))
+            except (TypeError, ValueError, OverflowError):
+                raise TelemetryError(f"telemetry {name} is not a number") from None
+            if not math.isfinite(value) or value < 0:
+                raise TelemetryError(f"telemetry {name} is not a finite non-negative number")
+            values[name] = value
+        return TelemetryReading(**values)
 
     def _check_perimeter(self, text_payload: str):
         """Run the text through the forbidden-word perimeter rules."""

@@ -105,10 +105,11 @@ class HealthLimitCheck:
 
     def verify_bounds(self, payload: TelemetryReading) -> Tuple[bool, Dict[str, float]]:
         detected_faults: Dict[str, float] = {}
-        if payload.latency > 500:
+        # "not x <= limit" also fails closed for NaN, which compares False both ways.
+        if not payload.latency <= 500:
             detected_faults["latency_fault"] = payload.latency
-        if payload.abort_rate > 0.25:
+        if not payload.abort_rate <= 0.25:
             detected_faults["abort_fault"] = payload.abort_rate
-        if payload.reentry_rate > 2.0:
+        if not payload.reentry_rate <= 2.0:
             detected_faults["reentry_fault"] = payload.reentry_rate
         return len(detected_faults) == 0, detected_faults
