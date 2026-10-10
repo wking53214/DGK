@@ -133,6 +133,15 @@ class TextChecker:
             sum(1 for marker in self.deviation_markers if marker in lowered_text) / 10
         )
 
+    # A flattering paragraph can spread its markers across many short
+    # sentences, so no single segment crosses the per-segment threshold.
+    # This many distinct markers anywhere in the text is flagged on its own.
+    PARAGRAPH_MARKER_LIMIT = 3
+
+    def _distinct_markers(self, text: str) -> int:
+        lowered_text = text.lower()
+        return sum(1 for marker in self.deviation_markers if marker in lowered_text)
+
     def validate_text_stream(self, text: str) -> List[str]:
         detected_violations = []
         text_segments = split_text_segments(text)
@@ -181,7 +190,10 @@ class TextChecker:
             ):
                 detected_violations.append("compliance_deviation_detected")
 
-        return list(set(detected_violations))
+        if self._distinct_markers(text) >= self.PARAGRAPH_MARKER_LIMIT:
+            detected_violations.append("compliance_deviation_detected")
+
+        return sorted(set(detected_violations))
 
 
 # ============================================================

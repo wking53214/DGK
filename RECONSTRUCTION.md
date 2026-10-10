@@ -151,3 +151,24 @@ Two characteristics are pinned by tests as observed rather than endorsed:
 - Any FastAPI, Redis or JWT integration. The recovered gateway section was a
   handful of lines wrapping the kernel behind mock fallbacks; the kernel's own
   API is the supported surface.
+
+## Changes after the rebuild (2026-10-10)
+
+Made on the working code, not the recovered text. Each has tests.
+
+- Booleans are refused as telemetry, and a refusal returns its cause.
+- The perimeter folds invisible characters, lookalike letters and punctuation
+  before matching. Three distinct flattery markers anywhere are flagged.
+- The regime is rebuilt from the audit trail after a restart, because each
+  line that reaches the classifier now carries its reading.
+- The ledger is checked against the signed trail on start, a crash between
+  ledger and audit is reconciled, and a torn last line is cut and recorded.
+- An optional external anchor for ledger heads (mechanism only; where it is
+  published is open).
+- Refusal text is size-capped and identity refusals are rate-budgeted.
+- Callers can be revoked and rotated.
+
+Not changed, because each is a design decision and not a defect: the text
+check stays advisory, the only invariant still cannot fail, the entropy score
+still adds unlike quantities, and the version number is still inherited.
+

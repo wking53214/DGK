@@ -80,7 +80,8 @@ def test_memory_only_store_writes_no_file(tmp_path):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="removing the newest events is not detectable without an external anchor",
+    reason=("a bare EventStore has nothing to compare against; the kernel checks "
+            "the ledger against the signed trail and an optional external anchor"),
 )
 def test_truncating_the_newest_event_is_detected():
     path = fresh()

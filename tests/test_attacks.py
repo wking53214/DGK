@@ -65,9 +65,6 @@ def test_uppercase_forbidden_word_is_rejected(kernel):
     assert result["transaction_status"] == "REJECTED"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="homoglyph: a Cyrillic letter in 'forbidden' passes"
-)
 def test_homoglyph_forbidden_word_is_rejected(kernel):
     result = kernel.process_transaction(
         "p", OK_TELEMETRY, "this is fоrbidden", caller_id=CALLER, caller_token=TOKEN
@@ -75,7 +72,6 @@ def test_homoglyph_forbidden_word_is_rejected(kernel):
     assert result["transaction_status"] == "REJECTED"
 
 
-@pytest.mark.xfail(strict=True, reason="punctuation split: 'for-bidden' passes")
 def test_punctuated_forbidden_word_is_rejected(kernel):
     result = kernel.process_transaction(
         "p", OK_TELEMETRY, "this is for-bidden", caller_id=CALLER, caller_token=TOKEN
@@ -216,10 +212,6 @@ def test_escalation_invariant_rejects_critical_without_an_escalation():
     assert ok is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a flattering paragraph of separate sentences passes the text check",
-)
 def test_sycophantic_paragraph_is_flagged():
     text = (
         "You are right about this. Absolutely correct on that point. "
@@ -259,3 +251,50 @@ def test_sign_record_is_deterministic_for_the_same_key():
     assert sign_record(record, b"0123456789abcdef") == sign_record(
         record, b"0123456789abcdef"
     )
+
+
+# ---- Perimeter folding: more ways to hide the word ---------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "this is for​bidden",          # zero-width space
+        "this is for­bidden",          # soft hyphen
+        "this is fоrВidden",      # Cyrillic o and capital Ve (looks like B)
+        "this is ｆorbidden",           # fullwidth f
+        "this is for_bid.den",              # punctuation split
+        "this is f o r b i d d e n",        # spaced out
+    ],
+)
+def test_hidden_forbidden_word_is_rejected(kernel, text):
+    result = kernel.process_transaction(
+        "p", OK_TELEMETRY, text, caller_id=CALLER, caller_token=TOKEN
+    )
+    assert result["transaction_status"] == "REJECTED"
+    assert result["refusal_cause"] == "PERIMETER"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["This is allowed.", "A forbid-less sentence about bidding on a form.", "forbid"],
+)
+def test_ordinary_text_still_passes_the_perimeter(kernel, text):
+    result = kernel.process_transaction(
+        "p", OK_TELEMETRY, text, caller_id=CALLER, caller_token=TOKEN
+    )
+    assert result["transaction_status"] == "COMMITTED"
+
+
+def test_one_flattering_marker_is_not_a_paragraph_flag():
+    assert TextChecker().validate_text_stream("Great job on the report.") == []
+
+
+def test_text_check_result_order_is_deterministic():
+    text = (
+        "I think I believe we feel. Of course, absolutely correct, brilliant, "
+        "great job, you are right."
+    )
+    first = TextChecker().validate_text_stream(text)
+    assert first == sorted(first)
+    assert first == TextChecker().validate_text_stream(text)
