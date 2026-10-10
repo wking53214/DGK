@@ -6,7 +6,7 @@ import math
 import os
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from .anchor import AnchorMismatch, HeadAnchor
 from .audit import AuditLog
@@ -45,6 +45,10 @@ class LedgerAuditMismatch(ValueError):
 #: text is cut and replaced by its length and a digest, so a caller who has
 #: proved nothing cannot choose how large a signed record is.
 MAX_RECORDED_TEXT = 256
+
+#: Deepest nesting allowed in a telemetry map. The whole map is committed to
+#: the ledger, so it has to be recordable, and a cycle must not recurse forever.
+MAX_TELEMETRY_DEPTH = 8
 
 
 def _clip(value: Any) -> str:
@@ -384,11 +388,40 @@ class Kernel:
         return True
 
     @staticmethod
+    def _check_recordable(value: Any, depth: int = 0) -> None:
+        """The whole telemetry map is committed to the ledger, extra keys included,
+        so everything in it must be plain, finite and shallow enough to record."""
+        if depth > MAX_TELEMETRY_DEPTH:
+            raise TelemetryError("telemetry is nested too deeply to record")
+        if value is None or isinstance(value, (bool, int, str)):
+            return
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise TelemetryError("telemetry holds a value that is not finite")
+            return
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise TelemetryError("telemetry keys must be strings")
+                Kernel._check_recordable(item, depth + 1)
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                Kernel._check_recordable(item, depth + 1)
+            return
+        raise TelemetryError(
+            f"telemetry holds a {type(value).__name__}, which cannot be recorded"
+        )
+
+    @staticmethod
     def _read_telemetry(telemetry_map: Dict[str, Any]) -> TelemetryReading:
         """Coerce the raw telemetry map to floats, with defaults for missing keys.
 
-        Raises TelemetryError for a value that is not a finite, non-negative number.
+        Raises TelemetryError for a value that is not a finite, non-negative number,
+        or for a map that cannot be recorded.
         """
+        if not isinstance(telemetry_map, Mapping):
+            raise TelemetryError("telemetry must be a mapping")
         defaults = (
             ("latency", 0.0),
             ("abort_rate", 0.0),
@@ -409,6 +442,8 @@ class Kernel:
             if not math.isfinite(value) or value < 0:
                 raise TelemetryError(f"telemetry {name} is not a finite non-negative number")
             values[name] = value
+        # The five readings are sound; the rest of the map is committed too.
+        Kernel._check_recordable(telemetry_map)
         return TelemetryReading(**values)
 
     def _check_perimeter(self, text_payload: str):

@@ -51,3 +51,40 @@ def test_the_result_names_the_same_cause_the_audit_trail_records(
     result = kernel.process_transaction("p", telemetry, text, CALLER, caller_token)
     assert result["refusal_cause"] == cause
     assert kernel.audit_logger.replay_log_history()[-1]["cause"] == cause
+
+
+# ---- The whole telemetry map is committed, so all of it must be recordable ----
+
+
+def _cycle():
+    loop = dict(OK)
+    loop["self"] = loop
+    return loop
+
+
+@pytest.mark.parametrize(
+    "telemetry",
+    [
+        _cycle(),
+        dict(OK, extra=object()),
+        dict(OK, extra={"a": float("nan")}),
+        dict(OK, extra=[1, float("inf")]),
+        dict(OK, extra={1: "non-string key"}),
+        dict(OK, extra={"a": {"b": {"c": {"d": {"e": {"f": {"g": {"h": {"i": 1}}}}}}}}}),
+        ["not", "a", "mapping"],
+        None,
+    ],
+)
+def test_telemetry_that_cannot_be_recorded_is_refused_not_raised(kernel, telemetry):
+    result = kernel.process_transaction("p", telemetry, "hi", CALLER, TOKEN)
+    assert result["transaction_status"] == "REJECTED"
+    assert result["refusal_cause"] == "TELEMETRY_INVALID"
+    assert kernel.ledger_store.get_events_since("p", 0) == []
+
+
+def test_plain_extra_fields_are_still_recorded(kernel):
+    extra = dict(OK, region="us-east", tags=["a", "b"], detail={"n": 1, "ok": True, "x": None})
+    result = kernel.process_transaction("p", extra, "hi", CALLER, TOKEN)
+    assert result["transaction_status"] == "COMMITTED"
+    event = kernel.ledger_store.get_events_since("p", 0)[0]
+    assert event.delta["detail"] == {"n": 1, "ok": True, "x": None}
