@@ -112,6 +112,7 @@ class Kernel:
         result: Dict[str, Any] = {
             "transaction_status": "REJECTED",
             "exception_details": reason,
+            "refusal_cause": cause,
         }
         if telemetry_metrics is not None:
             result["telemetry_metrics"] = telemetry_metrics
@@ -230,8 +231,12 @@ class Kernel:
         )
         values: Dict[str, float] = {}
         for name, default in defaults:
+            raw = telemetry_map.get(name, default)
+            if isinstance(raw, bool):
+                # float(True) is 1.0; a flag is not a measurement.
+                raise TelemetryError(f"telemetry {name} is not a number")
             try:
-                value = float(telemetry_map.get(name, default))
+                value = float(raw)
             except (TypeError, ValueError, OverflowError):
                 raise TelemetryError(f"telemetry {name} is not a number") from None
             if not math.isfinite(value) or value < 0:
