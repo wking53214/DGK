@@ -241,18 +241,14 @@ def test_sycophancy_markers_are_detected():
     assert "compliance_deviation_detected" in flagged
 
 
-def test_sycophancy_is_diluted_when_spread_across_sentences():
-    """Documents a real characteristic rather than asserting it is correct.
-
-    Scoring is per-segment and segments split on sentence boundaries, so the
-    same markers spread one-per-sentence each score 1/10 and none clears the
-    0.22 threshold. A wholly sycophantic paragraph can therefore pass while a
-    single dense clause is flagged. Raising the base threshold's sensitivity or
-    scoring at document level would change this; both are behaviour changes,
-    so the recovered behaviour is pinned here instead."""
+def test_sycophancy_spread_across_sentences_is_flagged():
+    """Per-segment scoring dilutes markers spread one per sentence: each
+    segment scores about 1/10 and none clears the 0.22 threshold. A paragraph
+    check now flags text holding PARAGRAPH_MARKER_LIMIT distinct markers
+    anywhere. Before it, this exact text passed, and the test pinned that."""
     validator = TextChecker()
     spread = "You are right. Absolutely correct. Excellent idea. Brilliant. Great job."
-    assert validator.validate_text_stream(spread) == []
+    assert validator.validate_text_stream(spread) == ["compliance_deviation_detected"]
 
 
 def test_identity_leakage_is_detected():
