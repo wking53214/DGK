@@ -34,9 +34,23 @@ class CallerRegistry:
             raise ValueError("caller_id and token are both required")
         self._grants[caller_id] = _Grant(_digest(token), frozenset(partitions))
 
+    def revoke(self, caller_id: str) -> bool:
+        """Remove a caller at once. True if there was one to remove."""
+        return self._grants.pop(caller_id, None) is not None
+
+    def rotate(self, caller_id: str, new_token: str) -> None:
+        """Replace a caller's token and keep its partitions. The old token stops
+        working immediately. Raises KeyError for an unknown caller."""
+        if not new_token:
+            raise ValueError("new_token is required")
+        grant = self._grants[caller_id]
+        self._grants[caller_id] = _Grant(_digest(new_token), grant.partitions)
+
     def authorizes(self, caller_id: str, token: str, partition_id: str) -> bool:
         """True only if the caller is known, the token matches, and the
-        partition is allowed."""
+        partition is allowed. Anything that is not a string is refused."""
+        if not all(isinstance(v, str) for v in (caller_id, token, partition_id)):
+            return False
         grant = self._grants.get(caller_id)
         if grant is None:
             return False

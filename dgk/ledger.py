@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -61,8 +62,11 @@ class EventStore:
         # With a path, every event is appended to an owner-only file, and the
         # file is verified and loaded on startup. Without one, the store is
         # memory only.
+        self._path = path
+        self.recovered_bytes = 0
         self._file = open_private_append(path) if path else None
         if self._file is not None:
+            self.recovered_bytes = self._repair_torn_tail()
             self._load()
         # Guards sequence numbering and the head hash so concurrent appends
         # to one partition cannot share a sequence number or fork the chain.
@@ -131,6 +135,42 @@ class EventStore:
         if self._file is not None:
             self._file.close()
             self._file = None
+
+    def partitions(self) -> List[str]:
+        return list(self._partition_streams)
+
+    def event_count(self, entity_id: str) -> int:
+        return len(self._partition_streams.get(entity_id, []))
+
+    def hash_at(self, entity_id: str, sequence_no: int) -> Optional[str]:
+        """The chain hash stored for one event, or None if there is no such event."""
+        hashes = self._partition_hashes.get(entity_id, [])
+        if 1 <= sequence_no <= len(hashes):
+            return hashes[sequence_no - 1]
+        return None
+
+    def _repair_torn_tail(self) -> int:
+        """Drop an unfinished last line left by a crash. Returns bytes removed.
+
+        The line is written before memory changes, so an unfinished line is an
+        event that never committed. A last line that is whole JSON but lacks
+        its newline is kept, and the chain check in `_load` still applies.
+        """
+        self._file.flush()
+        with open(self._path, "rb") as reader:
+            data = reader.read()
+        if not data or data.endswith(b"\n"):
+            return 0
+        cut = data.rfind(b"\n") + 1
+        tail = data[cut:]
+        try:
+            json.loads(tail.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            os.truncate(self._path, cut)
+            return len(tail)
+        self._file.write("\n")
+        self._file.flush()
+        return 0
 
     def _load(self) -> None:
         """Rebuild partitions from the file, refusing a file with a broken chain."""

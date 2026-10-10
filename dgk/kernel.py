@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import dataclasses
+import hashlib
 import math
 import os
 import threading
 import time
 from typing import Any, Dict, Optional
 
+from .anchor import AnchorMismatch, HeadAnchor
 from .audit import AuditLog
+from .budget import RefusalBudget
 from .identity import CallerRegistry
 from .interceptors import (
     ForbiddenWordRule,
@@ -33,6 +37,24 @@ class TelemetryError(ValueError):
     """A telemetry field is missing a usable value: not a number, not finite, or negative."""
 
 
+class LedgerAuditMismatch(ValueError):
+    """The ledger does not agree with the signed audit trail."""
+
+
+#: Longest caller, partition or reason text copied into a refusal record. Longer
+#: text is cut and replaced by its length and a digest, so a caller who has
+#: proved nothing cannot choose how large a signed record is.
+MAX_RECORDED_TEXT = 256
+
+
+def _clip(value: Any) -> str:
+    text = str(value)
+    if len(text) <= MAX_RECORDED_TEXT:
+        return text
+    digest = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16]
+    return f"{text[:MAX_RECORDED_TEXT]}...[{len(text)} chars, sha256 {digest}]"
+
+
 class Kernel:
     """Combines the rule checks, the ledger, and the stability tracker in one place."""
 
@@ -41,6 +63,8 @@ class Kernel:
         log_path: Optional[str] = None,
         callers: Optional[CallerRegistry] = None,
         key_path: Optional[str] = None,
+        anchor: Optional[HeadAnchor] = None,
+        refusal_budget: Optional[RefusalBudget] = None,
     ) -> None:
         # No shared default: the old /tmp/gov4_central_ssot.log was readable
         # and pre-creatable by any local user. The caller (or DGK_AUDIT_LOG)
@@ -75,6 +99,111 @@ class Kernel:
         self.transition_auditor = TransitionChecker(
             core_validation_manifest, self.state_reducer
         )
+        # Refusals from callers who failed the identity check are capped.
+        self._identity_budget = refusal_budget or RefusalBudget()
+        self.anchor = anchor
+        try:
+            self._restore_from_record()
+        except Exception:
+            # A kernel that refuses to start must not leave its files open.
+            self.audit_logger.close_stream()
+            self.ledger_store.close()
+            raise
+
+    def _restore_from_record(self) -> None:
+        """Rebuild what a restart would otherwise forget, from the signed trail.
+
+        The regime depends on every reading the classifier saw, so each audit
+        record that reaches the classifier carries its reading and they are
+        replayed in order. The ledger is then checked against the trail and
+        against the anchor, if there is one.
+        """
+        records = self.audit_logger.replay_log_history()
+        for record in records:
+            reading = record.get("telemetry_reading")
+            if reading is not None:
+                self.hysteresis_chassis.process_telemetry_step(
+                    TelemetryReading(**reading)
+                )
+        self._check_ledger_against_trail(records)
+        self._check_ledger_against_anchor()
+
+    def _check_ledger_against_trail(self, records) -> None:
+        """Every commit the trail signed must be in the ledger with the same hash.
+
+        Catches a ledger that was rewritten or cut back while the trail still
+        remembers the commits. A commit that reached the ledger just before a
+        crash, with no audit line yet, is written to the trail now. More than
+        one is not a crash, so it is refused.
+        """
+        audited: Dict[str, int] = {}
+        for record in records:
+            partition = record.get("partition_id")
+            sequence = record.get("stream_sequence_index")
+            head = record.get("blockchain_hash_head")
+            if partition is None or sequence is None or head is None:
+                continue
+            if self.ledger_store.hash_at(partition, sequence) != head:
+                raise LedgerAuditMismatch(
+                    f"ledger does not contain commit {sequence} of partition "
+                    f"{_clip(partition)!r} as the audit trail signed it; the ledger "
+                    "was cut back or rewritten"
+                )
+            audited[partition] = max(sequence, audited.get(partition, 0))
+        missing = [
+            (partition, sequence)
+            for partition in self.ledger_store.partitions()
+            for sequence in range(
+                audited.get(partition, 0) + 1,
+                self.ledger_store.event_count(partition) + 1,
+            )
+        ]
+        if len(missing) > 1:
+            raise LedgerAuditMismatch(
+                f"{len(missing)} ledger events have no audit record; at most "
+                "one can be the commit a crash interrupted"
+            )
+        for partition, sequence in missing:
+            event = self.ledger_store.get_events_since(partition, sequence - 1)[0]
+            self.audit_logger.append_record(
+                {
+                    "event": "reconciled_ledger_commit",
+                    "partition_id": partition,
+                    "caller_id": event.provenance.actor_id,
+                    "timestamp": time.time(),
+                    "blockchain_hash_head": self.ledger_store.hash_at(
+                        partition, sequence
+                    ),
+                    "stream_sequence_index": sequence,
+                }
+            )
+
+    def _check_ledger_against_anchor(self) -> None:
+        if self.anchor is None:
+            return
+        for partition, (sequence, head) in self.anchor.latest().items():
+            if self.ledger_store.hash_at(partition, sequence) != head:
+                raise AnchorMismatch(
+                    f"ledger no longer holds commit {sequence} of partition "
+                    f"{_clip(partition)!r} that the anchor recorded"
+                )
+
+    def close(self) -> None:
+        """Write any pending refusal summary and close the files."""
+        self._write_suppressed_summary(self._identity_budget.take_all())
+        self.audit_logger.close_stream()
+        self.ledger_store.close()
+
+    def _write_suppressed_summary(self, count: int) -> None:
+        if count:
+            self.audit_logger.append_record(
+                {
+                    "event": "refusals_suppressed",
+                    "cause": "IDENTITY",
+                    "count": count,
+                    "timestamp": time.time(),
+                }
+            )
 
     def process_transaction(
         self,
@@ -97,18 +226,30 @@ class Kernel:
         reason: str,
         cause: str,
         telemetry_metrics: Optional[Dict[str, Any]] = None,
+        reading: Optional[TelemetryReading] = None,
     ) -> Dict[str, Any]:
-        """Record a refusal in the signed audit trail, then return the rejection."""
-        self.audit_logger.append_record(
-            {
+        """Record a refusal in the signed audit trail, then return the rejection.
+
+        Identity refusals come from callers who have proved nothing, so they
+        share a budget; past it they are counted, not written.
+        """
+        if cause == "IDENTITY":
+            written = self._identity_budget.admit()
+            self._write_suppressed_summary(self._identity_budget.take_rolled())
+        else:
+            written = True
+        if written:
+            record: Dict[str, Any] = {
                 "event": "refused",
-                "partition_id": partition_id,
-                "caller_id": caller_id,
+                "partition_id": _clip(partition_id),
+                "caller_id": _clip(caller_id),
                 "timestamp": time.time(),
-                "reason": str(reason),
+                "reason": _clip(reason),
                 "cause": cause,
             }
-        )
+            if reading is not None:
+                record["telemetry_reading"] = dataclasses.asdict(reading)
+            self.audit_logger.append_record(record)
         result: Dict[str, Any] = {
             "transaction_status": "REJECTED",
             "exception_details": reason,
@@ -157,6 +298,7 @@ class Kernel:
                 perimeter_check.details,
                 "PERIMETER",
                 telemetry_metrics=stability_metrics,
+                reading=telemetry,
             )
 
         if not boundary_pass:
@@ -166,6 +308,7 @@ class Kernel:
                 f"Health limits breached: {boundary_faults}",
                 "HEALTH_LIMIT",
                 telemetry_metrics=stability_metrics,
+                reading=telemetry,
             )
 
         provenance_block = Provenance(
@@ -182,6 +325,7 @@ class Kernel:
                 caller_id,
                 f"Manifest contract breached: {invariant_breaches}",
                 "MANIFEST",
+                reading=telemetry,
             )
 
         committed_block, blockchain_head_hash = self.ledger_store.append_event(
@@ -204,10 +348,11 @@ class Kernel:
                 "boundary_pass": boundary_pass,
                 "boundary_faults": boundary_faults,
                 "linguistic_anomalies": linguistic_anomalies,
+                "telemetry_reading": dataclasses.asdict(telemetry),
             }
         )
 
-        return {
+        result = {
             "transaction_status": "COMMITTED",
             "scrubbed_text": scrubbed_text_output,
             "compliance_anomalies": linguistic_anomalies,
@@ -215,6 +360,28 @@ class Kernel:
             "ledger_sequence": committed_block.sequence_no,
             "block_hash": blockchain_head_hash,
         }
+        if self.anchor is not None:
+            result["anchor_published"] = self._publish_anchor(
+                partition_id, committed_block.sequence_no, blockchain_head_hash
+            )
+        return result
+
+    def _publish_anchor(self, partition_id: str, sequence_no: int, head: str) -> bool:
+        """Tell the anchor about the new head. A failure is recorded, not hidden."""
+        try:
+            self.anchor.publish(partition_id, sequence_no, head)
+        except Exception as exc:  # the commit stands; the gap must be on record
+            self.audit_logger.append_record(
+                {
+                    "event": "anchor_publish_failed",
+                    "partition_id": partition_id,
+                    "sequence_no": sequence_no,
+                    "reason": _clip(exc),
+                    "timestamp": time.time(),
+                }
+            )
+            return False
+        return True
 
     @staticmethod
     def _read_telemetry(telemetry_map: Dict[str, Any]) -> TelemetryReading:

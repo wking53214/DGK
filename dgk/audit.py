@@ -5,7 +5,8 @@ import hmac
 import json
 import os
 import secrets
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 from .serialization import to_canonical_json, drop_private_fields
 
@@ -63,9 +64,70 @@ class AuditLog:
         self.file_descriptor = open_private_append(storage_path)
         self._key = load_or_create_key(key_path or storage_path + ".key")
         self._last_signature = _GENESIS
+        # A crash can leave half a line at the end. That is not tampering and
+        # not a record, so it is cut off and the cut is itself recorded.
+        self.recovered_bytes = self._repair_torn_tail()
         # Refuse to continue on top of a trail that has already been altered.
         for record in self.replay_log_history():
             self._last_signature = record["signature"]
+        if self.recovered_bytes:
+            self.append_record(
+                {
+                    "event": "recovered_torn_tail",
+                    "dropped_bytes": self.recovered_bytes,
+                    "timestamp": time.time(),
+                }
+            )
+
+    def _repair_torn_tail(self) -> int:
+        """Drop an unfinished last line. Returns the number of bytes removed.
+
+        A last line with no newline is only kept if it is a whole record that
+        passes the chain and signature check. Damage anywhere else is left for
+        replay to refuse.
+        """
+        self.file_descriptor.flush()
+        with open(self.storage_path, "rb") as reader:
+            data = reader.read()
+        if not data or data.endswith(b"\n"):
+            return 0
+        cut = data.rfind(b"\n") + 1
+        tail = data[cut:]
+        try:
+            kept = self._parse_lines(data[:cut].decode("utf-8"))
+            candidate = json.loads(tail.decode("utf-8"))
+            self._check_chain(kept + [candidate])
+        except (ValueError, UnicodeDecodeError):
+            os.truncate(self.storage_path, cut)
+            return len(tail)
+        self.file_descriptor.write("\n")
+        return 0
+
+    @staticmethod
+    def _parse_lines(text: str) -> List[Dict[str, Any]]:
+        records = []
+        for number, line in enumerate((l for l in text.splitlines() if l.strip()), 1):
+            try:
+                records.append(json.loads(line))
+            except ValueError:
+                raise ValueError(
+                    f"audit record {number} is not valid JSON; the trail was "
+                    "edited or damaged before its last line"
+                ) from None
+        return records
+
+    def _check_chain(self, records: List[Dict[str, Any]]) -> str:
+        """Verify every signature and link. Returns the last signature."""
+        previous = _GENESIS
+        for index, record in enumerate(records, start=1):
+            body = {k: v for k, v in record.items() if k != "signature"}
+            if body.get("prev_signature") != previous:
+                raise ValueError(f"audit chain broken at record {index}")
+            expected = sign_record(body, self._key)
+            if not hmac.compare_digest(str(record.get("signature", "")), expected):
+                raise ValueError(f"audit signature invalid at record {index}")
+            previous = record["signature"]
+        return previous
 
     def append_record(self, record: Dict[str, Any]) -> None:
         entry = {**record, "prev_signature": self._last_signature}
@@ -84,16 +146,8 @@ class AuditLog:
         """
         self.file_descriptor.flush()
         with open(self.storage_path, "r", encoding="utf-8") as file_reader:
-            records = [json.loads(line) for line in file_reader if line.strip()]
-        previous = _GENESIS
-        for index, record in enumerate(records, start=1):
-            body = {k: v for k, v in record.items() if k != "signature"}
-            if body.get("prev_signature") != previous:
-                raise ValueError(f"audit chain broken at record {index}")
-            expected = sign_record(body, self._key)
-            if not hmac.compare_digest(str(record.get("signature", "")), expected):
-                raise ValueError(f"audit signature invalid at record {index}")
-            previous = record["signature"]
+            records = self._parse_lines(file_reader.read())
+        self._check_chain(records)
         return records
 
 

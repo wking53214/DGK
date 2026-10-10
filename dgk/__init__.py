@@ -83,7 +83,9 @@ from .interceptors import (
     HealthLimitCheck,
 )
 from .identity import CallerRegistry
-from .kernel import Kernel
+from .anchor import AnchorMismatch, FileHeadAnchor, HeadAnchor
+from .budget import RefusalBudget
+from .kernel import Kernel, LedgerAuditMismatch, TelemetryError
 
 __all__ = [
     "SYSTEM_NAME",
@@ -131,4 +133,10 @@ __all__ = [
     "ForbiddenWordRule",
     "HealthLimitCheck",
     "Kernel",
+    "LedgerAuditMismatch",
+    "TelemetryError",
+    "AnchorMismatch",
+    "FileHeadAnchor",
+    "HeadAnchor",
+    "RefusalBudget",
 ]
