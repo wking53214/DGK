@@ -24,11 +24,15 @@ jobs:
       - name: Install package and test dependency
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .
+          python -m pip install -e ".[cns]"
           python -m pip install pytest
 
-      - name: Run test suite
-        run: python -m pytest tests/ -q
+      - name: Run test suite, and fail on any skip
+        # The CNS interface tests skip when CNS is missing. It is installed
+        # here, so a skip would mean the interface went untested.
+        run: |
+          python -m pytest tests/ -q -rs | tee out.txt
+          ! grep -qi "skipped" out.txt
 
       - name: Run the kernel demo end to end
         run: python examples/run_kernel_demo.py

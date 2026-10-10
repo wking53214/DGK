@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 reservoir = ["numpy>=1.21"]
+cns = ["cns @ git+https://github.com/wking53214/CNS.git@v1.4.0"]
 
 [tool.setuptools.packages.find]
 include = ["dgk*"]

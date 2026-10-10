@@ -57,6 +57,45 @@ check also share a budget (60 per 60 seconds by default). Past the budget they
 are counted, not written, and one signed `refusals_suppressed` line records
 the count. Refusals from authorized callers are never suppressed.
 
+## CNS interface
+
+`dgk/cns_interface.py` reports every answer as CNS gate verdicts, the shared
+contract the other repos in the library join on. It wraps a kernel and does not
+change what the kernel decides.
+
+```python
+from dgk import Kernel
+from dgk.cns_interface import GovernedKernel
+
+governed = GovernedKernel(kernel)          # needs: pip install "dgk[cns]"
+result = governed.submit(partition_id, telemetry, text, caller_id, token)
+result.outcome        # PASS, RETRY or TERMINAL_BREACH
+result.results        # one verdict per stage that ran, each bound to the request
+result.transaction    # DGK's own answer, unchanged
+```
+
+What each answer means:
+
+| Stage | End | If it refuses |
+|---|---|---|
+| identity | ALPHA (before the work) | TERMINAL_BREACH |
+| telemetry | ALPHA | RETRY: send a correct reading |
+| perimeter | ALPHA | TERMINAL_BREACH: DGK calls it a security exception |
+| health limit | ALPHA | RETRY: conditions may recover |
+| manifest | ALPHA | TERMINAL_BREACH |
+| text check | OMEGA (on the result) | never: it records findings and blocks nothing |
+
+The RETRY and TERMINAL_BREACH split is a judgement, kept in one table
+(`REFUSAL_OUTCOMES`). Each verdict is bound to the request as submitted (partition,
+caller id, telemetry, text) by the CNS digest, and never to the token. A
+verdict from one request does not bind another. Tamper-evidence only: there is no
+secret in the digest.
+
+DGK is a stateful door: running a transaction commits and moves the regime. So
+this interface reports verdicts after the fact and does not offer objects that
+pretend to be pure gates. CNS stays optional; `import dgk` works without it, and
+the interface checks the CNS version (1.4.0) on first use.
+
 ## Restart and recovery
 
 The record is what a restart is built from.
@@ -149,7 +188,7 @@ reading the code.
 - A cut-back or rewritten ledger, a crash between ledger and audit, and a torn last line.
 - The anchor catching a joint cut-back, and a failing anchor being recorded.
 - The unauthenticated flood being capped, and non-string credentials being refused.
-- 201 tests pass and 1 documented gap is marked as an expected failure (a bare
+- 227 tests pass (26 of them need CNS) and 1 documented gap is marked as an expected failure (a bare
   ledger file cannot see its own truncation; the kernel checks it). CI runs
   the tests and the demo on Python 3.10 to 3.13.
 
@@ -159,7 +198,7 @@ reading the code.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 201 tests, 1 expected failure
+python3 -m pytest tests/ -q           # 227 tests, 1 expected failure
 ```
 
 ```python
@@ -201,6 +240,7 @@ result = kernel.process_transaction(
 - `identity.py`: caller tokens (digests only), partition grants, revoke and rotate
 - `budget.py`: the cap on refusals from callers who failed the identity check
 - `anchor.py`: the optional external anchor for ledger heads
+- `cns_interface.py`: the answers as CNS gate verdicts (optional, needs CNS)
 - `kernel.py`: wires the pieces into one transaction
 
 ## Known open items
