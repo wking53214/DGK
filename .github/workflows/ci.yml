@@ -31,6 +31,7 @@ jobs:
         # The CNS interface tests skip when CNS is missing. It is installed
         # here, so a skip would mean the interface went untested.
         run: |
+          set -o pipefail
           python -m pytest tests/ -q -rs | tee out.txt
           ! grep -qi "skipped" out.txt
 
