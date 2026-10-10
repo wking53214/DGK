@@ -27,7 +27,10 @@ you rely on the record for anything.
    cannot change any state.
 2. Validates the five telemetry values (latency, abort rate, retry rate, load
    depth, determinism). A value that is not a finite, non-negative number is
-   refused. Booleans are refused too.
+   refused. Booleans are refused too. The whole map is committed to the ledger,
+   extra keys included, so anything in it that cannot be recorded (an object,
+   a non-finite number, a non-string key, nesting past 8 levels, a cycle) is
+   refused as well, and a refusal is written, not raised.
 3. Places the system in an operating regime. It escalates at once and
    recovers only after three calm readings in a row.
 4. Screens the text. A request containing the word "forbidden" is refused. The
@@ -146,7 +149,7 @@ reading the code.
 - A cut-back or rewritten ledger, a crash between ledger and audit, and a torn last line.
 - The anchor catching a joint cut-back, and a failing anchor being recorded.
 - The unauthenticated flood being capped, and non-string credentials being refused.
-- 192 tests pass and 1 documented gap is marked as an expected failure (a bare
+- 201 tests pass and 1 documented gap is marked as an expected failure (a bare
   ledger file cannot see its own truncation; the kernel checks it). CI runs
   the tests and the demo on Python 3.10 to 3.13.
 
@@ -156,7 +159,7 @@ reading the code.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 192 tests, 1 expected failure
+python3 -m pytest tests/ -q           # 201 tests, 1 expected failure
 ```
 
 ```python
