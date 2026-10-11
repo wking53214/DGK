@@ -359,7 +359,7 @@ def test_rejected_transactions_reach_the_audit_log_only_as_refusals(kernel):
 
 def test_wal_records_are_valid_json_lines():
     path = os.path.join(tempfile.mkdtemp(), "wal.log")
-    wal = AuditLog(path)
+    wal = AuditLog(path, key_id="test-key")
     wal.append_record({"b": 2, "a": 1})
     wal.close_stream()
     with open(path) as handle:
@@ -477,7 +477,7 @@ def test_an_explicit_log_path_wins_over_the_environment(monkeypatch, tmp_path):
 
 def test_a_new_audit_log_is_owner_only(tmp_path):
     path = tmp_path / "private.log"
-    wal = AuditLog(str(path))
+    wal = AuditLog(str(path), key_id="test-key")
     wal.close_stream()
     if os.name == "posix":
         assert (os.stat(path).st_mode & 0o777) == 0o600
@@ -493,5 +493,5 @@ def test_the_audit_log_refuses_to_follow_a_planted_symlink(tmp_path):
     link = tmp_path / "audit.log"
     os.symlink(target, link)
     with pytest.raises(OSError):
-        AuditLog(str(link))
+        AuditLog(str(link), key_id="test-key")
     assert target.read_text() == "untouched"

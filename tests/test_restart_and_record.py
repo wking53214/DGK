@@ -134,13 +134,13 @@ def test_a_torn_last_audit_line_is_cut_and_recorded(tmp_path):
 
 def test_a_whole_record_missing_only_its_newline_is_kept(tmp_path):
     path = tmp_path / "a.log"
-    log = AuditLog(str(path))
+    log = AuditLog(str(path), key_id="test-key")
     log.append_record({"n": 1})
     log.append_record({"n": 2})
     log.close_stream()
     data = open(path, "rb").read()
     open(path, "wb").write(data.rstrip(b"\n"))
-    reopened = AuditLog(str(path))
+    reopened = AuditLog(str(path), key_id="test-key")
     assert [r["n"] for r in reopened.replay_log_history()] == [1, 2]
     assert reopened.recovered_bytes == 0
     reopened.close_stream()
@@ -161,7 +161,7 @@ def test_damage_before_the_last_line_still_fails_closed(tmp_path):
 
 def test_a_tampered_last_audit_line_is_not_mistaken_for_a_torn_one(tmp_path):
     path = tmp_path / "a.log"
-    log = AuditLog(str(path))
+    log = AuditLog(str(path), key_id="test-key")
     log.append_record({"n": 1})
     log.append_record({"n": 2})
     log.close_stream()
@@ -169,7 +169,7 @@ def test_a_tampered_last_audit_line_is_not_mistaken_for_a_torn_one(tmp_path):
     forged = json.loads(lines[1])
     forged["n"] = 99
     open(path, "w").write(lines[0] + "\n" + json.dumps(forged))
-    reopened = AuditLog(str(path))
+    reopened = AuditLog(str(path), key_id="test-key")
     assert [r["n"] for r in reopened.replay_log_history()[:1]] == [1]
     assert reopened.recovered_bytes > 0
     assert all(r.get("n") != 99 for r in reopened.replay_log_history())
@@ -352,7 +352,7 @@ def test_pending_suppressed_count_is_written_on_close(tmp_path):
         k.process_transaction("p", OK, "x", f"u{i}", "wrong")
     path = k.audit_logger.storage_path
     k.close()
-    reopened = AuditLog(path)
+    reopened = AuditLog(path, key_id="test-key")
     counts = [r["count"] for r in reopened.replay_log_history()
               if r["event"] == "refusals_suppressed"]
     assert counts == [3]

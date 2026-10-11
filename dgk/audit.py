@@ -50,11 +50,6 @@ def load_or_create_key(key_path: str) -> bytes:
 SIGNATURE_ALGORITHM = "hmac-sha256"
 
 
-def key_id_for(key: bytes) -> str:
-    """A public identifier for the audit key: a short hash of it, never the key."""
-    return "key-" + hashlib.sha256(b"dgk-key-id|" + key).hexdigest()[:12]
-
-
 def open_private_append(path: str):
     """Open a file for appending, owner-only, refusing a symlink at the path."""
     if os.path.dirname(path):
@@ -67,12 +62,15 @@ def open_private_append(path: str):
 class AuditLog:
     """Append-only transaction logger. Each line is signed and chained."""
 
-    def __init__(self, storage_path: str, key_path: Optional[str] = None):
+    def __init__(self, storage_path: str, key_path: Optional[str] = None, key_id: Optional[str] = None):
         self.storage_path = storage_path
         # Owner-only, and refuses a symlink planted at the path.
         self.file_descriptor = open_private_append(storage_path)
         self._key = load_or_create_key(key_path or storage_path + ".key")
-        self._key_id = key_id_for(self._key)
+        # The key ID is caller-named, never derived from the key.
+        if not key_id:
+            raise ValueError("AuditLog needs a caller-named key_id (pass key_id= or set DGK_AUDIT_KEY_ID)")
+        self._key_id = key_id
         self._last_signature = _GENESIS
         # A crash can leave half a line at the end. That is not tampering and
         # not a record, so it is cut off and the cut is itself recorded.
@@ -149,7 +147,7 @@ class AuditLog:
         entry = {
             **record,
             "prev_signature": self._last_signature,
-            "signature_algorithm": SIGNATURE_ALGORITHM,
+            "algorithm": SIGNATURE_ALGORITHM,
             "key_id": self._key_id,
         }
         entry["signature"] = sign_record(entry, self._key)

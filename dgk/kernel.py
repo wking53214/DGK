@@ -67,6 +67,7 @@ class Kernel:
         log_path: Optional[str] = None,
         callers: Optional[CallerRegistry] = None,
         key_path: Optional[str] = None,
+        key_id: Optional[str] = None,
         anchor: Optional[HeadAnchor] = None,
         refusal_budget: Optional[RefusalBudget] = None,
     ) -> None:
@@ -76,7 +77,10 @@ class Kernel:
         log_path = log_path or os.environ.get("DGK_AUDIT_LOG")
         if not log_path:
             raise ValueError("pass log_path= or set DGK_AUDIT_LOG")
-        self.audit_logger = AuditLog(log_path, key_path)
+        key_id = key_id or os.environ.get("DGK_AUDIT_KEY_ID")
+        if not key_id:
+            raise ValueError("pass key_id= or set DGK_AUDIT_KEY_ID")
+        self.audit_logger = AuditLog(log_path, key_path, key_id)
         # Empty by default: no caller can act until one is registered.
         self.callers = callers or CallerRegistry()
         self.ledger_store = EventStore(path=log_path + ".ledger")

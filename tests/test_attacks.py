@@ -135,7 +135,7 @@ def test_audit_file_refuses_a_planted_symlink(tmp_path):
     link = tmp_path / "audit.log"
     os.symlink(target, link)
     with pytest.raises(OSError):
-        AuditLog(str(link))
+        AuditLog(str(link), key_id="test-key")
     assert target.read_text() == "untouched\n"
 
 

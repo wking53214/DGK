@@ -13,7 +13,7 @@ def fresh_path():
 
 
 def write_three(path):
-    log = AuditLog(path)
+    log = AuditLog(path, key_id="test-key")
     for n in range(3):
         log.append_record({"n": n})
     log.close_stream()
@@ -22,7 +22,7 @@ def write_three(path):
 def test_reopened_trail_verifies_and_the_chain_continues():
     path = fresh_path()
     write_three(path)
-    log = AuditLog(path)
+    log = AuditLog(path, key_id="test-key")
     log.append_record({"n": 3})
     assert len(log.replay_log_history()) == 4
     log.close_stream()
@@ -30,7 +30,7 @@ def test_reopened_trail_verifies_and_the_chain_continues():
 
 def test_key_file_is_created_owner_only():
     path = fresh_path()
-    AuditLog(path).close_stream()
+    AuditLog(path, key_id="test-key").close_stream()
     key_path = path + ".key"
     assert stat.S_IMODE(os.stat(key_path).st_mode) == 0o600
 
@@ -49,7 +49,7 @@ def test_deleting_a_middle_line_is_detected():
     del lines[1]
     open(path, "w").write("\n".join(lines) + "\n")
     with pytest.raises(ValueError):
-        AuditLog(path)
+        AuditLog(path, key_id="test-key")
 
 
 def test_reordering_lines_is_detected():
@@ -59,7 +59,7 @@ def test_reordering_lines_is_detected():
     lines[0], lines[1] = lines[1], lines[0]
     open(path, "w").write("\n".join(lines) + "\n")
     with pytest.raises(ValueError):
-        AuditLog(path)
+        AuditLog(path, key_id="test-key")
 
 
 def test_a_different_key_cannot_verify_the_trail():
@@ -67,12 +67,12 @@ def test_a_different_key_cannot_verify_the_trail():
     write_three(path)
     os.remove(path + ".key")
     with pytest.raises(ValueError):
-        AuditLog(path)
+        AuditLog(path, key_id="test-key")
 
 
 def test_group_readable_key_file_is_refused():
     path = fresh_path()
-    AuditLog(path).close_stream()
+    AuditLog(path, key_id="test-key").close_stream()
     os.chmod(path + ".key", 0o640)
     with pytest.raises(PermissionError):
         load_or_create_key(path + ".key")
@@ -80,7 +80,7 @@ def test_group_readable_key_file_is_refused():
 
 def test_symlinked_key_file_is_refused():
     path = fresh_path()
-    AuditLog(path).close_stream()
+    AuditLog(path, key_id="test-key").close_stream()
     target = os.path.join(os.path.dirname(path), "elsewhere.key")
     with open(target, "wb") as handle:
         handle.write(b"x" * 32)
