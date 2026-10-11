@@ -46,6 +46,15 @@ def load_or_create_key(key_path: str) -> bytes:
     return key
 
 
+#: Name of the signing algorithm recorded on every entry written from now on.
+SIGNATURE_ALGORITHM = "hmac-sha256"
+
+
+def key_id_for(key: bytes) -> str:
+    """A public identifier for the audit key: a short hash of it, never the key."""
+    return "key-" + hashlib.sha256(b"dgk-key-id|" + key).hexdigest()[:12]
+
+
 def open_private_append(path: str):
     """Open a file for appending, owner-only, refusing a symlink at the path."""
     if os.path.dirname(path):
@@ -63,6 +72,7 @@ class AuditLog:
         # Owner-only, and refuses a symlink planted at the path.
         self.file_descriptor = open_private_append(storage_path)
         self._key = load_or_create_key(key_path or storage_path + ".key")
+        self._key_id = key_id_for(self._key)
         self._last_signature = _GENESIS
         # A crash can leave half a line at the end. That is not tampering and
         # not a record, so it is cut off and the cut is itself recorded.
@@ -123,6 +133,12 @@ class AuditLog:
             body = {k: v for k, v in record.items() if k != "signature"}
             if body.get("prev_signature") != previous:
                 raise ValueError(f"audit chain broken at record {index}")
+            # Entries written before key IDs carry neither field and still verify.
+            if "key_id" in body and body["key_id"] != self._key_id:
+                raise ValueError(
+                    f"audit record {index} was signed with key {body['key_id']!r}; "
+                    f"this log holds {self._key_id!r}"
+                )
             expected = sign_record(body, self._key)
             if not hmac.compare_digest(str(record.get("signature", "")), expected):
                 raise ValueError(f"audit signature invalid at record {index}")
@@ -130,7 +146,12 @@ class AuditLog:
         return previous
 
     def append_record(self, record: Dict[str, Any]) -> None:
-        entry = {**record, "prev_signature": self._last_signature}
+        entry = {
+            **record,
+            "prev_signature": self._last_signature,
+            "signature_algorithm": SIGNATURE_ALGORITHM,
+            "key_id": self._key_id,
+        }
         entry["signature"] = sign_record(entry, self._key)
         self.file_descriptor.write(to_canonical_json(entry) + "\n")
         self._last_signature = entry["signature"]
