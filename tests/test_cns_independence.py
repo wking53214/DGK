@@ -6,10 +6,10 @@ depend on what the test environment happens to contain. They never skip.
 """
 import ast
 import os
+import re
 import subprocess
 import sys
 import textwrap
-import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +82,8 @@ def test_no_module_of_the_package_imports_cns_by_statement():
 
 
 def test_the_package_declares_no_runtime_dependency_and_pins_the_cns_extra():
-    meta = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    assert meta["dependencies"] == []
-    assert any(dep.startswith("cns @ git+https://github.com/wking53214/CNS.git@v") for dep in meta["optional-dependencies"]["cns"])
+    # Read as text: tomllib only exists from Python 3.11 and DGK supports 3.10.
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    runtime = re.search(r"^dependencies\s*=\s*\[(.*?)\]", text, re.S | re.M)
+    assert runtime is not None and runtime.group(1).strip() == ""
+    assert re.search(r'^cns = \["cns @ git\+https://github\.com/wking53214/CNS\.git@v[0-9.]+"\]$', text, re.M)
