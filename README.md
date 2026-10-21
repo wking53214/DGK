@@ -85,6 +85,23 @@ The record is what a restart is built from.
 Call `kernel.close()` when finished. It writes any pending refusal summary and
 closes the files.
 
+## Optional CNS connection
+
+DGK does not need CNS. It has no runtime dependency, nothing in the package imports CNS when it loads, and the kernel never imports it (`tests/test_cns_independence.py` checks this with CNS blocked). `dgk/cns_connector.py` is the one place that knows CNS exists. Install it with `pip install 'dgk[cns]'`; without CNS, building a gate raises `CnsNotInstalled` and nothing else changes.
+
+It offers two pure checks from the kernel as gates in CNS's shared gate contract (`cns.gate`), both at the `ALPHA` end because they judge a request before anything is committed:
+
+| Gate | What it runs | PASS | not PASS |
+|---|---|---|---|
+| `PerimeterGate` | the perimeter rules (by default the forbidden-sequence screen) over the request text | no rule rejects | `TERMINAL_BREACH` (a forbidden sequence does not become allowed by asking again) |
+| `HealthGate` | the health limits over the five telemetry values | every limit holds | `RETRY` for a breached limit (load eases); `TERMINAL_BREACH`, unbound, for telemetry the kernel would refuse |
+
+Each verdict is bound with `cns.gate.subject_digest` to what the check read: the request text, or the five readings. A verdict on one request does not bind to another.
+
+Asking a gate is not submitting a transaction. The gates do not touch the kernel, the regime tracker, the ledger or the audit trail, whereas a real transaction moves the regime on every reading it classifies. `tests/test_cns_connector.py` runs the gates and a real kernel over the same requests and checks they agree about what happens.
+
+DGK has only the input end, so `cns_chain().complete()` is `False` by design. A repository with an `OMEGA` gate (DIT judges generated text) completes the chain.
+
 ## Known gaps
 
 These are the gaps between the design and the code. Each one is confirmed by
