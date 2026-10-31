@@ -13,7 +13,7 @@ dependencies = []
 [project.optional-dependencies]
 reservoir = ["numpy>=1.21"]
 # Optional: lets the perimeter and health checks be asked as CNS gates (dgk.cns_connector). Nothing in DGK imports CNS otherwise.
-cns = ["cns @ git+https://github.com/wking53214/CNS.git@v1.9.0"]
+cns = ["cns @ git+https://github.com/wking53214/CNS.git@v2.3.0"]
 
 [tool.setuptools.packages.find]
 include = ["dgk*"]
