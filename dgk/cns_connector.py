@@ -46,9 +46,17 @@ a rule that raises             ``TERMINAL_BREACH``  (a check that cannot
 =============================  =========================================
 
 ``subject_digest`` is ``cns.gate.subject_digest`` over what the check read: the
-request text for the perimeter (``{"text": ...}``) and the five telemetry
-readings for health (``{"telemetry": {...}}``). A verdict bound to one request
-does not bind to another.
+request text for the perimeter (``{"text": ...}``), or, for a request mapping,
+the whole mapping (``{"request": {...}}``), and the five telemetry readings for
+health (``{"telemetry": {...}}``). A verdict bound to one request does not bind
+to another.
+
+A request mapping is screened over every string it carries, in every field and
+at any depth (``text``, ``messages``, ``metadata`` and any other key), not only
+the ``text`` the kernel builds its payload from. A field the gate cannot read
+(bytes, an object, a non-text key, a request that contains itself) is an
+unbound ``TERMINAL_BREACH``. A ``PerimeterGate`` with an empty rule registry is
+refused at construction with ``ValueError``: no rules would pass everything.
 
 DGK has only the input end. ``cns_chain(...).complete()`` is ``False`` by
 design: the omega end comes from a repository that has one (DIT judges
@@ -109,12 +117,57 @@ def cns_available() -> bool:
     return True
 
 
-def _request_text(candidate: object) -> str:
-    """The text the perimeter rules read, built the way the kernel builds it."""
+class _Unreadable(Exception):
+    """A request field the perimeter cannot read faithfully."""
+
+
+def _strings(payload: Mapping[str, Any]) -> list:
+    """Every string a request mapping carries, keys included, at any depth.
+
+    Iterative, so depth cannot exhaust the stack. A container met twice on the
+    current path (a cycle), or a value that is not text, a number, a bool,
+    None, a mapping or a list, cannot be judged and raises ``_Unreadable``.
+    """
+    found: list = []
+    stack: list = [(payload, ())]
+    while stack:
+        node, path = stack.pop()
+        if isinstance(node, str):
+            found.append(node)
+        elif node is None or isinstance(node, (bool, int, float)):
+            continue
+        elif isinstance(node, (Mapping, list, tuple)):
+            if id(node) in path:
+                raise _Unreadable("the request refers to itself")
+            inner = path + (id(node),)
+            if isinstance(node, Mapping):
+                children = []
+                for key, value in node.items():
+                    if not isinstance(key, str):
+                        raise _Unreadable(f"a request key is a {type(key).__name__}, not text")
+                    children.extend((key, value))
+            else:
+                children = list(node)
+            stack.extend((child, inner) for child in reversed(children))
+        else:
+            raise _Unreadable(f"a request field holds a {type(node).__name__}, which is not text")
+    return found
+
+
+def _judged(candidate: object) -> tuple:
+    """What the perimeter screens and what its verdict binds to.
+
+    Plain text is screened and bound as ``{"text": ...}``, as before. A request
+    mapping is screened over every string it carries in any field (``text``,
+    ``messages``, ``metadata`` or any other key), and the verdict binds to the
+    whole mapping (``{"request": ...}``), so a verdict on one request cannot be
+    moved onto another that carries more.
+    """
     if isinstance(candidate, str):
-        return RequestBuilder.normalize({"text": candidate}).request_text
+        return RequestBuilder.normalize({"text": candidate}).request_text, {"text": candidate}, None
     if isinstance(candidate, Mapping):
-        return RequestBuilder.normalize(dict(candidate)).request_text
+        payload = dict(candidate)
+        return "\n".join(_strings(payload)), {"request": payload}, payload
     raise TypeError(
         f"the perimeter gate judges request text or a request mapping; got {type(candidate).__name__}"
     )
@@ -126,7 +179,7 @@ def request_digest(candidate: object) -> str:
     Pass it, with ``REQUEST_SUBJECT``, to ``GateResult.binds`` to check that a
     verdict was issued against exactly this request.
     """
-    return _cns_gate().subject_digest({"text": _request_text(candidate)})
+    return _cns_gate().subject_digest(_judged(candidate)[1])
 
 
 def telemetry_digest(telemetry: Mapping[str, Any]) -> str:
@@ -145,6 +198,10 @@ class PerimeterGate:
         if registry is None:
             registry = RuleRegistry()
             registry.register(ForbiddenWordRule())
+        if not tuple(getattr(registry, "registered", ())):
+            raise ValueError(
+                "the perimeter registry has no rules; an empty registry would pass everything"
+            )
         self._registry = registry
 
     @property
@@ -153,10 +210,20 @@ class PerimeterGate:
 
     def check(self, candidate: object) -> Any:
         gate = _cns_gate()
-        text = _request_text(candidate)
-        bound = {"subject": REQUEST_SUBJECT, "subject_digest": gate.subject_digest({"text": text})}
         try:
-            context = RequestBuilder.normalize({"text": text})
+            text, content, payload = _judged(candidate)
+            bound = {"subject": REQUEST_SUBJECT, "subject_digest": gate.subject_digest(content)}
+        except (_Unreadable, TypeError, ValueError, RecursionError) as exc:
+            if not isinstance(candidate, (str, Mapping)):
+                raise
+            return gate.GateResult(
+                gate=self.name, position=gate.GatePosition.ALPHA, outcome=gate.GateOutcome.TERMINAL_BREACH,
+                reason=f"the request cannot be read in full ({exc}); nothing was judged")
+        try:
+            if not tuple(self._registry.registered):
+                raise ValueError("the perimeter registry has no rules")
+            context = RequestBuilder.normalize({"text": text} if payload is None else payload)
+            context = dataclasses.replace(context, request_text=text)
             verdict = self._registry.evaluate(context)
         except Exception as exc:  # a rule that cannot answer is never read as a pass
             return gate.GateResult(

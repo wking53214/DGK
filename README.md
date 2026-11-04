@@ -93,10 +93,10 @@ It offers two pure checks from the kernel as gates in CNS's shared gate contract
 
 | Gate | What it runs | PASS | not PASS |
 |---|---|---|---|
-| `PerimeterGate` | the perimeter rules (by default the forbidden-sequence screen) over the request text | no rule rejects | `TERMINAL_BREACH` (a forbidden sequence does not become allowed by asking again) |
+| `PerimeterGate` | the perimeter rules (by default the forbidden-sequence screen) over the request text, or over every string in every field of a request mapping (`text`, `messages`, `metadata`, any other key, at any depth) | no rule rejects | `TERMINAL_BREACH` (a forbidden sequence does not become allowed by asking again) |
 | `HealthGate` | the health limits over the five telemetry values | every limit holds | `RETRY` for a breached limit (load eases); `TERMINAL_BREACH`, unbound, for telemetry the kernel would refuse |
 
-Each verdict is bound with `cns.gate.subject_digest` to what the check read: the request text, or the five readings. A verdict on one request does not bind to another.
+Each verdict is bound with `cns.gate.subject_digest` to what the check read: the request text (`{"text": ...}`), the whole request mapping (`{"request": ...}`), or the five readings. A verdict on one request does not bind to another. A request field the gate cannot read (bytes, an object, a non-text key, a request that contains itself) is an unbound `TERMINAL_BREACH`, and `PerimeterGate` refuses an empty rule registry with `ValueError`.
 
 Asking a gate is not submitting a transaction. The gates do not touch the kernel, the regime tracker, the ledger or the audit trail, whereas a real transaction moves the regime on every reading it classifies. `tests/test_cns_connector.py` runs the gates and a real kernel over the same requests and checks they agree about what happens.
 
