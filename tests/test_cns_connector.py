@@ -53,7 +53,7 @@ def test_a_forbidden_sequence_is_a_terminal_breach_however_it_is_disguised(text)
 def test_a_request_mapping_is_read_the_way_the_kernel_reads_it():
     chat = {"messages": [{"role": "user", "content": "something forbidden here"}]}
     assert PerimeterGate().check(chat).outcome is BREACH
-    assert PerimeterGate().check({"text": "fine", "messages": [{"content": "forbidden"}]}).outcome is PASS
+    assert PerimeterGate().check({"text": "fine", "messages": [{"content": "forbidden"}]}).outcome is BREACH
 
 
 @pytest.mark.parametrize("bad", [None, 7, ["forbidden"], b"forbidden"])
@@ -73,7 +73,8 @@ def test_the_gate_uses_the_registry_it_is_given():
     registry.register(Refuse())
     result = PerimeterGate(registry).check("harmless")
     assert result.outcome is BREACH and result.reason == "custom: no"
-    assert PerimeterGate(RuleRegistry()).check("a forbidden thing").outcome is PASS   # no rules, nothing to refuse
+    with pytest.raises(ValueError, match="no rules"):   # no rules would pass everything
+        PerimeterGate(RuleRegistry())
 
 
 def test_a_rule_that_raises_is_a_breach_bound_to_the_request():
