@@ -8,6 +8,15 @@ whether to accept it, and writes a record of what happened.
 original repository was lost, and this code was rebuilt from a conversation
 export. See `PROVENANCE.md` and `RECONSTRUCTION.md`.
 
+## Role Within ≡TACK
+
+- **What it is.** A single-process prototype kernel: per transaction it checks health telemetry and text, decides to commit or refuse, and writes a hash-chained ledger and a signed audit trail.
+- **Authority matrix.** Evaluation (word-list and threshold checks), enforcement of its own accept or refuse decision inside the process, authentication of registered callers by token digest, and evidence generation (ledger plus signed audit). Verification of its own record on restart. It does not define policy beyond its built-in rules.
+- **Does not own.** Distributed agreement (it is one process), production custody, or truth of the text it checks.
+- **Depends on.** The standard library for the kernel; numpy is optional and the kernel never uses it; CNS is optional (see "Optional CNS connection").
+- **Depended on by.** UNKNOWN (not inspected here).
+- **Fail behavior.** Closed on refusals it implements (a refusal writes its cause; a health breach writes nothing to the ledger). Open on missing telemetry: a reading that is absent is treated as healthy (step 2 below). The text check is advisory and blocks nothing. The audit key sits on the same machine as the trail, so tampering is only evident against someone without the key, and a joint cut-back of ledger and audit is undetectable without an anchor, which is not configured by default.
+
 ## What it is for
 
 The intent is a system that can prove afterward what it did and why. Two
@@ -30,7 +39,12 @@ you rely on the record for anything.
    refused. Booleans are refused too. The whole map is committed to the ledger,
    extra keys included, so anything in it that cannot be recorded (an object,
    a non-finite number, a non-string key, nesting past 8 levels, a cycle) is
-   refused as well, and a refusal is written, not raised.
+   refused as well, and a refusal is written, not raised. A reading that is
+   missing from the map is not refused. It is filled in with a healthy default
+   (0 for latency, abort rate, retry rate and load depth; 1.0 for determinism),
+   so an empty map, or one whose keys are misspelled, is read as a healthy
+   system and committed (EXECUTED 2026-11-18: an empty map, and a map holding
+   only `Latency: 9999`, were both COMMITTED).
 3. Places the system in an operating regime. It escalates at once and
    recovers only after three calm readings in a row.
 4. Screens the text. A request containing the word "forbidden" is refused. The
@@ -87,7 +101,7 @@ closes the files.
 
 ## Optional CNS connection
 
-DGK does not need CNS. It has no runtime dependency, nothing in the package imports CNS when it loads, and the kernel never imports it (`tests/test_cns_independence.py` checks this with CNS blocked). `dgk/cns_connector.py` is the one place that knows CNS exists. Install it with `pip install 'dgk[cns]'`; without CNS, building a gate raises `CnsNotInstalled` and nothing else changes.
+DGK does not need CNS. It has no runtime dependency, nothing in the package imports CNS when it loads, and the kernel never imports it (`tests/test_cns_independence.py` checks this with CNS blocked). `dgk/cns_connector.py` is the one place that knows CNS exists. Install it from a clone with `pip install -e ".[cns]"`, or with `pip install "dgk[cns] @ git+https://github.com/wking53214/DGK.git"`. The bare form `pip install 'dgk[cns]'` that stood here does not work: no package named `dgk` is published (EXECUTED 2026-11-18), and the connector's own error message still prints that form. Without CNS, building a gate raises `CnsNotInstalled` and nothing else changes.
 
 It offers two pure checks from the kernel as gates in CNS's shared gate contract (`cns.gate`), both at the `ALPHA` end because they judge a request before anything is committed:
 
@@ -122,6 +136,10 @@ reading the code.
   comes from the signed audit trail, as described above.
 - A refusal summary that has not been written when the process dies is lost.
   The individual lines up to the budget are not.
+- The signature on an audit line does not cover any field whose name starts
+  with an underscore. The kernel writes no such field. One added to a signed
+  line afterwards (for example `_approved_by`) is not noticed on restart, while
+  a change to any signed field is refused (EXECUTED 2026-11-18).
 
 **Identity**
 - The token is never stored. The registry keeps only a SHA-256 digest of it,
@@ -152,6 +170,11 @@ reading the code.
 **Numbers**
 - The entropy score adds five unlike quantities, so it is not a clean
   information measure.
+- The ledger rounds every number to six decimal places before hashing. A
+  stored reading changed past the sixth place (134.2 to 134.2000004 in the
+  ledger file) did not break the chain and the kernel started; a change in the
+  second place was refused (EXECUTED 2026-11-18). This is the rounding gap the
+  module list below points to. It was missing from this section.
 
 **Other**
 - The echo state reservoir is optional (needs numpy). The kernel never uses it.
@@ -166,9 +189,14 @@ reading the code.
 - A cut-back or rewritten ledger, a crash between ledger and audit, and a torn last line.
 - The anchor catching a joint cut-back, and a failing anchor being recorded.
 - The unauthenticated flood being capped, and non-string credentials being refused.
-- 201 tests pass and 1 documented gap is marked as an expected failure (a bare
-  ledger file cannot see its own truncation; the kernel checks it). CI runs
-  the tests and the demo on Python 3.10 to 3.13.
+- EXECUTED 2026-11-18 at `e6874ba`, Python 3.13, fresh environments. The command under
+  "Running it" (this package and pytest, nothing else): 211 passed, 2 skipped, 1 expected
+  failure (a bare ledger file cannot see its own truncation; the kernel checks it). The two
+  skipped modules need CNS. With the `cns` extra and `DGK_REQUIRE_CNS=1`, as CI's second job
+  runs it: 260 passed, 1 expected failure, none skipped, at CNS `v4.0.0` (the pin) and at
+  `v4.1.0`. The demo exits 0. The "260 passed" this line gave on 2026-11-15 is the with-CNS
+  count, and the older "201 tests" figure was out of date. CI is set to run the tests and
+  the demo on Python 3.10 to 3.13; its results were not read.
 
 ## Running it
 
@@ -176,7 +204,7 @@ reading the code.
 pip install -e .               # or: pip install -e ".[reservoir]"
 
 python3 examples/run_kernel_demo.py   # commit, rejection, replay
-python3 -m pytest tests/ -q           # 201 tests, 1 expected failure
+python3 -m pytest tests/ -q           # 211 passed, 2 skipped, 1 expected failure (EXECUTED 2026-11-18; 260 passed with the cns extra)
 ```
 
 ```python
