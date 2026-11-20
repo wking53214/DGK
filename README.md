@@ -171,11 +171,15 @@ reading the code.
 **Numbers**
 - The entropy score adds five unlike quantities, so it is not a clean
   information measure.
-- The ledger rounds every number to six decimal places before hashing, so its
-  own chain does not notice a stored reading changed past the sixth place (134.2
-  to 134.2000004; EXECUTED 2026-11-18, before the fix below). On restart the
-  kernel now also compares each reading the ledger stored for a commit with the
-  exact reading the signed audit trail holds for it, and refuses to start on a
+- Ledger events written before 2026-11-20 were hashed with every number rounded
+  to six decimal places, so their chain does not notice a stored reading changed
+  past the sixth place (134.2 to 134.2000004; EXECUTED 2026-11-18). New events
+  are hashed on the exact values, with a hash version inside the hash, so that
+  change is now caught for them. Older events still verify the old way, so an
+  existing ledger keeps loading and a mixed ledger verifies (EXECUTED
+  2026-11-20 with a ledger written by the previous code). On restart the kernel
+  also compares each reading the ledger stored for a commit with the exact
+  reading the signed audit trail holds for it, and refuses to start on a
   difference. A reading changed in the ledger of a commit the trail never signed
   (the one commit a crash can leave without an audit line) is not compared.
 

@@ -431,8 +431,9 @@ def test_a_ledger_reading_changed_past_the_hash_precision_is_detected(tmp_path):
     rows = [json.loads(line) for line in open(ledger).read().splitlines()]
     rows[0]["delta"]["latency"] = rows[0]["delta"]["latency"] + 0.0000004  # past the sixth decimal place
     open(ledger, "w").write("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n")
-    assert EventStore(path=ledger).verify_chain("p")  # the rounded hash and the chain still accept it
-    with pytest.raises(LedgerAuditMismatch):
+    with pytest.raises(ValueError):  # the exact-value hash no longer accepts it
+        EventStore(path=ledger)
+    with pytest.raises(ValueError):
         make(path)
 
 

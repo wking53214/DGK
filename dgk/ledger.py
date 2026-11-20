@@ -14,10 +14,12 @@ from .audit import open_private_append
 from .serialization import round_floats
 from .taxonomy import Event, Provenance, Snapshot
 
-# Numbers in an event's data are rounded to this many decimal places before
-# hashing, so the same reading always produces the same hash. The stored
-# event keeps full precision. Verifiers must apply the same rounding.
+# Older ledgers rounded every number in an event's data to this many decimal
+# places before hashing. New events hash the exact values, and say so inside the
+# hash (HASH_VERSION), so a change past the sixth place is detected. Events written
+# before that carry no version and are still checked the old way.
 HASH_FLOAT_PRECISION = 6
+HASH_VERSION = 2
 
 
 # CRYPTOGRAPHICALLY TAMPER-EVIDENT EVENT STORAGE LEDGER
@@ -30,19 +32,38 @@ class Sha256Chain(HashChainStrategy):
     """Computes SHA-256 signatures over sequential state mutation matrices."""
 
     def compute_hash(self, previous_hash: str, event: Event) -> str:
+        """The hash a new event gets: exact values, with the hash version inside it."""
+        return self._digest(previous_hash, event, legacy=False)
+
+    def matches(self, previous_hash: str, event: Event, stored: str) -> bool:
+        """True if ``stored`` is this event's hash, as written now or by an older version.
+
+        A version 2 hash covers the version number and the exact values, so a stored
+        version 2 hash cannot be passed off as an older one: the two are hashes of
+        different payloads.
+        """
+        return stored in (
+            self._digest(previous_hash, event, legacy=False),
+            self._digest(previous_hash, event, legacy=True),
+        )
+
+    @staticmethod
+    def _digest(previous_hash: str, event: Event, legacy: bool) -> str:
         payload = {
             "previous_hash": previous_hash,
             "event_id": event.event_id,
             "entity_id": event.entity_id,
             "sequence_no": event.sequence_no,
             "event_type": event.event_type,
-            "delta": round_floats(event.delta, HASH_FLOAT_PRECISION),
+            "delta": round_floats(event.delta, HASH_FLOAT_PRECISION) if legacy else event.delta,
             "provenance": {
                 "actor_id": event.provenance.actor_id,
                 "policy_id": event.provenance.policy_id,
                 "justification": event.provenance.justification,
             },
         }
+        if not legacy:
+            payload["hash_version"] = HASH_VERSION
         serialized_payload = json.dumps(payload, sort_keys=True).encode()
         return hashlib.sha256(serialized_payload).hexdigest()
 
@@ -126,9 +147,15 @@ class EventStore:
         for index, (event, stored) in enumerate(zip(stream, hashes), start=1):
             if event.sequence_no != index:
                 return False
-            previous = self._hashing_strategy.compute_hash(previous, event)
-            if previous != stored:
-                return False
+            matches = getattr(self._hashing_strategy, "matches", None)
+            if matches is not None:
+                if not matches(previous, event, stored):
+                    return False
+                previous = stored
+            else:
+                previous = self._hashing_strategy.compute_hash(previous, event)
+                if previous != stored:
+                    return False
         return len(stream) == len(hashes)
 
     def close(self) -> None:
