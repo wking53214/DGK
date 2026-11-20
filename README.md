@@ -196,8 +196,8 @@ reading the code.
   "Running it" (this package and pytest, nothing else): 211 passed, 2 skipped, 1 expected
   failure (a bare ledger file cannot see its own truncation; the kernel checks it). The two
   skipped modules need CNS. With the `cns` extra and `DGK_REQUIRE_CNS=1`, as CI's second job
-  runs it: 260 passed, 1 expected failure, none skipped, at CNS `v4.0.0` (the pin) and at
-  `v4.1.0`. The demo exits 0. The "260 passed" this line gave on 2026-11-15 is the with-CNS
+  runs it: 260 passed, 1 expected failure, none skipped, at CNS `v4.1.0` (the pin) and at
+  `v4.0.0`. The demo exits 0. The "260 passed" this line gave on 2026-11-15 is the with-CNS
   count, and the older "201 tests" figure was out of date. CI is set to run the tests and
   the demo on Python 3.10 to 3.13; its results were not read.
 
