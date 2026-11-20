@@ -2,7 +2,7 @@
 The recovered entrypoint's scenario, run against the rebuilt kernel.
 
 Shows a healthy transaction committing, a forbidden one being rejected before
-anything reaches the ledger, and the write-ahead log replayed afterwards.
+anything reaches the ledger, and the audit log replayed afterwards.
 """
 
 import json
@@ -44,14 +44,14 @@ def main() -> None:
         PARTITION, TELEMETRY, "this text is forbidden", CALLER, token
     )
     print(json.dumps(rejected, indent=4))
-    print("  Nothing was committed: the ledger head is unchanged. The write-ahead")
+    print("  Nothing was committed: the ledger head is unchanged. The audit")
     print("  log holds one signed refusal entry for the request, and nothing else.")
 
     print("\n--- Phase 3: materialized state from the ledger ---")
     state = kernel.materialization_runtime.materialize_state(PARTITION)
     print("  ", dict(state))
 
-    print("\n--- Phase 4: write-ahead log replay ---")
+    print("\n--- Phase 4: audit log replay ---")
     for index, record in enumerate(kernel.audit_logger.replay_log_history()):
         print(f"  [{index}] {json.dumps(record)[:150]}")
 

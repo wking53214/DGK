@@ -18,7 +18,7 @@ A transaction runs through five stages, and any of the first three can stop it:
      projected state is rebuilt from it                            (ledger.py)
   5. Text is checked for compliance and normalized            (linguistics.py)
 
-Then the whole outcome is written to a write-ahead audit log        (audit.py)
+Then the whole outcome is written to a signed audit log, after the commit (audit.py)
 
 The design position worth naming: state is *derived*, never stored directly.
 Current state is a replay of the event stream, so the ledger is the single

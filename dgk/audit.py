@@ -11,7 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from .serialization import to_canonical_json, drop_private_fields
 
 
-# WRITE-AHEAD LOGGING AUDIT CHANNEL
+# SIGNED, HASH-CHAINED AUDIT CHANNEL (written after the ledger commit, not ahead of it;
+# a commit with no audit line after a crash is reconciled when the kernel starts)
 # ============================================================
 _GENESIS = "GENESIS"
 _KEY_BYTES = 32
