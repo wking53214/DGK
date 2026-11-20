@@ -62,7 +62,7 @@ DGK has only the input end. ``cns_chain(...).complete()`` is ``False`` by
 design: the omega end comes from a repository that has one (DIT judges
 generated text, URE judges a regime).
 
-Install with the extra: ``pip install 'dgk[cns]'``.
+Install with the extra: ``pip install 'dgk[cns] @ git+https://github.com/wking53214/DGK.git@main'``.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ __all__ = [
     "telemetry_digest",
 ]
 
-INSTALL_HINT = "pip install 'dgk[cns]'"
+INSTALL_HINT = "pip install 'dgk[cns] @ git+https://github.com/wking53214/DGK.git@main'"
 
 REQUEST_SUBJECT = "request"
 TELEMETRY_SUBJECT = "telemetry"
