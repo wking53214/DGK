@@ -153,6 +153,7 @@ class Kernel:
                     f"{_clip(partition)!r} as the audit trail signed it; the ledger "
                     "was cut back or rewritten"
                 )
+            self._check_reading_matches(partition, sequence, record.get("telemetry_reading"))
             audited[partition] = max(sequence, audited.get(partition, 0))
         missing = [
             (partition, sequence)
@@ -181,6 +182,19 @@ class Kernel:
                     "stream_sequence_index": sequence,
                 }
             )
+
+    def _check_reading_matches(self, partition, sequence, reading) -> None:
+        """The ledger's hash rounds numbers, so a change past its precision keeps the chain intact. The signed
+        trail holds the exact reading; each reading the ledger stored for that commit must equal it."""
+        if not isinstance(reading, dict):
+            return
+        stored = self.ledger_store.get_events_since(partition, sequence - 1)[0].delta
+        for name, signed in reading.items():
+            if name in stored and stored[name] != signed:
+                raise LedgerAuditMismatch(
+                    f"ledger commit {sequence} of partition {_clip(partition)!r} holds a different "
+                    f"{name} than the audit trail signed; the ledger was rewritten"
+                )
 
     def _check_ledger_against_anchor(self) -> None:
         if self.anchor is None:
@@ -415,23 +429,20 @@ class Kernel:
 
     @staticmethod
     def _read_telemetry(telemetry_map: Dict[str, Any]) -> TelemetryReading:
-        """Coerce the raw telemetry map to floats, with defaults for missing keys.
+        """Coerce the raw telemetry map to floats. All five readings must be present.
 
-        Raises TelemetryError for a value that is not a finite, non-negative number,
+        Raises TelemetryError for a reading that is missing (an empty map, or one whose keys are
+        misspelled, is not a healthy system), for a value that is not a finite, non-negative number,
         or for a map that cannot be recorded.
         """
         if not isinstance(telemetry_map, Mapping):
             raise TelemetryError("telemetry must be a mapping")
-        defaults = (
-            ("latency", 0.0),
-            ("abort_rate", 0.0),
-            ("reentry_rate", 0.0),
-            ("load_depth", 0.0),
-            ("determinism_index", 1.0),
-        )
+        names = ("latency", "abort_rate", "reentry_rate", "load_depth", "determinism_index")
         values: Dict[str, float] = {}
-        for name, default in defaults:
-            raw = telemetry_map.get(name, default)
+        for name in names:
+            if name not in telemetry_map:
+                raise TelemetryError(f"telemetry {name} is missing")
+            raw = telemetry_map[name]
             if isinstance(raw, bool):
                 # float(True) is 1.0; a flag is not a measurement.
                 raise TelemetryError(f"telemetry {name} is not a number")

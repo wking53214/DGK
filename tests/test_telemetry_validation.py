@@ -73,8 +73,12 @@ def test_a_refused_nan_does_not_corrupt_later_classification(kernel, tmp_path):
     assert after == reference
 
 
-def test_missing_fields_still_default(kernel):
-    assert run(kernel, {})["transaction_status"] == "COMMITTED"
+def test_a_missing_reading_is_refused_not_read_as_healthy(kernel):
+    for telemetry in ({}, {"Latency": 9999}, {k: v for k, v in CALM.items() if k != "latency"}):
+        result = run(kernel, telemetry)
+        assert result["transaction_status"] == "REJECTED", telemetry
+    assert [r["cause"] for r in records(kernel)] == ["TELEMETRY_INVALID"] * 3
+    assert kernel.ledger_store.event_count("p") == 0
 
 
 def test_boundary_values_are_still_accepted(kernel):

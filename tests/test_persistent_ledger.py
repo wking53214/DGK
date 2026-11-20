@@ -98,7 +98,7 @@ def test_a_restarted_kernel_loads_its_earlier_ledger():
     log = os.path.join(tempfile.mkdtemp(), "audit.log")
     first = Kernel(log_path=log)
     first.callers.register("c", "tok-0123456789abcdef0123456789", ["p"])
-    telemetry = {"latency": 10.0, "abort_rate": 0.0, "reentry_rate": 0.0}
+    telemetry = {"latency": 10.0, "abort_rate": 0.0, "reentry_rate": 0.0, "load_depth": 0.0, "determinism_index": 1.0}
     first.process_transaction(
         "p", telemetry, "fine", "c", "tok-0123456789abcdef0123456789"
     )

@@ -139,7 +139,7 @@ class AuditLog:
                     f"audit record {index} was signed with key {body['key_id']!r}; "
                     f"this log holds {self._key_id!r}"
                 )
-            expected = sign_record(body, self._key)
+            expected = sign_record(body, self._key, keep_private=True)
             if not hmac.compare_digest(str(record.get("signature", "")), expected):
                 raise ValueError(f"audit signature invalid at record {index}")
             previous = record["signature"]
@@ -152,7 +152,7 @@ class AuditLog:
             "signature_algorithm": SIGNATURE_ALGORITHM,
             "key_id": self._key_id,
         }
-        entry["signature"] = sign_record(entry, self._key)
+        entry["signature"] = sign_record(entry, self._key, keep_private=True)
         self.file_descriptor.write(to_canonical_json(entry) + "\n")
         self._last_signature = entry["signature"]
 
@@ -175,9 +175,12 @@ class AuditLog:
 # ============================================================
 # CRYPTOGRAPHIC SECURITY ATTESTATION
 # ============================================================
-def sign_record(state: Dict[str, Any], secret_key: bytes) -> str:
-    """Signs public dictionary state configurations via HMAC-SHA256."""
-    payload = to_canonical_json(drop_private_fields(state)).encode()
+def sign_record(state: Dict[str, Any], secret_key: bytes, keep_private: bool = False) -> str:
+    """Signs public dictionary state configurations via HMAC-SHA256.
+
+    Fields whose names start with an underscore are left out, unless `keep_private` is true. The audit trail
+    signs every field, so one added to a signed line afterwards is noticed."""
+    payload = to_canonical_json(state if keep_private else drop_private_fields(state)).encode()
     return hmac.new(secret_key, payload, hashlib.sha256).hexdigest()
 
 
