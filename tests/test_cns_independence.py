@@ -53,7 +53,7 @@ def test_the_connector_says_what_is_missing_when_cns_is_blocked():
             try:
                 build()
             except CnsNotInstalled as e:
-                assert "pip install 'dgk[cns]'" in str(e)
+                assert "pip install 'dgk[cns] @ git+https://github.com/wking53214/DGK.git@main'" in str(e)
             else:
                 raise SystemExit("constructed without cns")
         print('ok')
