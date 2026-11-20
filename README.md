@@ -15,7 +15,7 @@ export. See `PROVENANCE.md` and `RECONSTRUCTION.md`.
 - **Does not own.** Distributed agreement (it is one process), production custody, or truth of the text it checks.
 - **Depends on.** The standard library for the kernel; numpy is optional and the kernel never uses it; CNS is optional (see "Optional CNS connection").
 - **Depended on by.** UNKNOWN (not inspected here).
-- **Fail behavior.** Closed on refusals it implements (a refusal writes its cause; a health breach writes nothing to the ledger). Open on missing telemetry: a reading that is absent is treated as healthy (step 2 below). The text check is advisory and blocks nothing. The audit key sits on the same machine as the trail, so tampering is only evident against someone without the key, and a joint cut-back of ledger and audit is undetectable without an anchor, which is not configured by default.
+- **Fail behavior.** Closed on refusals it implements (a refusal writes its cause; a health breach writes nothing to the ledger). A reading that is absent is refused (step 2 below). The text check is advisory and blocks nothing. The audit key sits on the same machine as the trail, so tampering is only evident against someone without the key, and a joint cut-back of ledger and audit is undetectable without an anchor, which is not configured by default.
 
 ## What it is for
 
@@ -40,11 +40,11 @@ you rely on the record for anything.
    extra keys included, so anything in it that cannot be recorded (an object,
    a non-finite number, a non-string key, nesting past 8 levels, a cycle) is
    refused as well, and a refusal is written, not raised. A reading that is
-   missing from the map is not refused. It is filled in with a healthy default
-   (0 for latency, abort rate, retry rate and load depth; 1.0 for determinism),
-   so an empty map, or one whose keys are misspelled, is read as a healthy
-   system and committed (EXECUTED 2026-11-18: an empty map, and a map holding
-   only `Latency: 9999`, were both COMMITTED).
+   missing from the map is refused too (cause TELEMETRY_INVALID), so an empty
+   map, or one whose keys are misspelled, is not read as a healthy system. Before
+   this was fixed (EXECUTED 2026-11-18, at `e6874ba`), a missing reading was filled
+   in with a healthy default, and an empty map, and a map holding only
+   `Latency: 9999`, were both COMMITTED.
 3. Places the system in an operating regime. It escalates at once and
    recovers only after three calm readings in a row.
 4. Screens the text. A request containing the word "forbidden" is refused. The
@@ -136,10 +136,11 @@ reading the code.
   comes from the signed audit trail, as described above.
 - A refusal summary that has not been written when the process dies is lost.
   The individual lines up to the budget are not.
-- The signature on an audit line does not cover any field whose name starts
-  with an underscore. The kernel writes no such field. One added to a signed
-  line afterwards (for example `_approved_by`) is not noticed on restart, while
-  a change to any signed field is refused (EXECUTED 2026-11-18).
+- The signature on an audit line now covers every field, including one whose
+  name starts with an underscore. Before this was fixed (EXECUTED 2026-11-18), one
+  added to a signed line afterwards (for example `_approved_by`) was not noticed
+  on restart. The standalone `sign_record` function still leaves such fields out
+  unless it is called with `keep_private=True`; the audit trail does.
 
 **Identity**
 - The token is never stored. The registry keeps only a SHA-256 digest of it,
@@ -170,11 +171,13 @@ reading the code.
 **Numbers**
 - The entropy score adds five unlike quantities, so it is not a clean
   information measure.
-- The ledger rounds every number to six decimal places before hashing. A
-  stored reading changed past the sixth place (134.2 to 134.2000004 in the
-  ledger file) did not break the chain and the kernel started; a change in the
-  second place was refused (EXECUTED 2026-11-18). This is the rounding gap the
-  module list below points to. It was missing from this section.
+- The ledger rounds every number to six decimal places before hashing, so its
+  own chain does not notice a stored reading changed past the sixth place (134.2
+  to 134.2000004; EXECUTED 2026-11-18, before the fix below). On restart the
+  kernel now also compares each reading the ledger stored for a commit with the
+  exact reading the signed audit trail holds for it, and refuses to start on a
+  difference. A reading changed in the ledger of a commit the trail never signed
+  (the one commit a crash can leave without an audit line) is not compared.
 
 **Other**
 - The echo state reservoir is optional (needs numpy). The kernel never uses it.

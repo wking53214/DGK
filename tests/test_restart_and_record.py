@@ -417,3 +417,34 @@ def test_rotating_an_unknown_caller_is_an_error():
     from dgk import CallerRegistry
     with pytest.raises(KeyError):
         CallerRegistry().rotate("nobody", "tok")
+
+
+# ---- Gaps found on 2026-11-18, now closed -----------------------------------
+
+
+def test_a_ledger_reading_changed_past_the_hash_precision_is_detected(tmp_path):
+    path = tmp_path / "a.log"
+    k = make(path)
+    run(k)
+    k.close()
+    ledger = str(path) + ".ledger"
+    rows = [json.loads(line) for line in open(ledger).read().splitlines()]
+    rows[0]["delta"]["latency"] = rows[0]["delta"]["latency"] + 0.0000004  # past the sixth decimal place
+    open(ledger, "w").write("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n")
+    assert EventStore(path=ledger).verify_chain("p")  # the rounded hash and the chain still accept it
+    with pytest.raises(LedgerAuditMismatch):
+        make(path)
+
+
+def test_a_field_added_to_a_signed_audit_line_is_refused_on_restart(tmp_path):
+    path = tmp_path / "a.log"
+    k = make(path)
+    run(k)
+    k.close()
+    lines = open(path).read().splitlines()
+    record = json.loads(lines[0])
+    record["_approved_by"] = "someone"
+    lines[0] = json.dumps(record, sort_keys=True)
+    open(path, "w").write("\n".join(lines) + "\n")
+    with pytest.raises(ValueError, match="signature invalid"):
+        make(path)

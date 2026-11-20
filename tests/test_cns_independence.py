@@ -38,7 +38,7 @@ def test_the_kernel_still_does_its_job_with_cns_blocked(tmp_path):
         from dgk import Kernel
         k = Kernel(log_path=os.path.join({str(tmp_path)!r}, "audit.log"))
         k.callers.register("c", "token-0123456789abcdef0123456789abc", ("p",))
-        done = k.process_transaction("p", {{"latency": 10.0}}, "hello", "c", "token-0123456789abcdef0123456789abc")
+        done = k.process_transaction("p", {{"latency": 10.0, "abort_rate": 0.0, "reentry_rate": 0.0, "load_depth": 0.0, "determinism_index": 1.0}}, "hello", "c", "token-0123456789abcdef0123456789abc")
         assert done["transaction_status"] == "COMMITTED", done
         k.close()
         print('ok')
