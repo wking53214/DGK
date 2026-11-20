@@ -101,7 +101,7 @@ closes the files.
 
 ## Optional CNS connection
 
-DGK does not need CNS. It has no runtime dependency, nothing in the package imports CNS when it loads, and the kernel never imports it (`tests/test_cns_independence.py` checks this with CNS blocked). `dgk/cns_connector.py` is the one place that knows CNS exists. Install it from a clone with `pip install -e ".[cns]"`, or with `pip install "dgk[cns] @ git+https://github.com/wking53214/DGK.git"`. The bare form `pip install 'dgk[cns]'` that stood here does not work: no package named `dgk` is published (EXECUTED 2026-11-18), and the connector's own error message still prints that form. Without CNS, building a gate raises `CnsNotInstalled` and nothing else changes.
+DGK does not need CNS. It has no runtime dependency, nothing in the package imports CNS when it loads, and the kernel never imports it (`tests/test_cns_independence.py` checks this with CNS blocked). `dgk/cns_connector.py` is the one place that knows CNS exists. Install it from a clone with `pip install -e ".[cns]"`, or with `pip install "dgk[cns] @ git+https://github.com/wking53214/DGK.git"`. The bare form `pip install 'dgk[cns]'` does not work, because no package named `dgk` is published (EXECUTED 2026-11-18). The connector's error message prints the install-from-repository form. Without CNS, building a gate raises `CnsNotInstalled` and nothing else changes.
 
 It offers two pure checks from the kernel as gates in CNS's shared gate contract (`cns.gate`), both at the `ALPHA` end because they judge a request before anything is committed:
 
