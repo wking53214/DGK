@@ -415,23 +415,21 @@ class Kernel:
 
     @staticmethod
     def _read_telemetry(telemetry_map: Dict[str, Any]) -> TelemetryReading:
-        """Coerce the raw telemetry map to floats, with defaults for missing keys.
+        """Coerce the raw telemetry map to floats. All five readings are required.
 
-        Raises TelemetryError for a value that is not a finite, non-negative number,
-        or for a map that cannot be recorded.
+        Raises TelemetryError for a reading that is missing, or is not a finite,
+        non-negative number, or for a map that cannot be recorded.
         """
         if not isinstance(telemetry_map, Mapping):
             raise TelemetryError("telemetry must be a mapping")
-        defaults = (
-            ("latency", 0.0),
-            ("abort_rate", 0.0),
-            ("reentry_rate", 0.0),
-            ("load_depth", 0.0),
-            ("determinism_index", 1.0),
-        )
+        names = ("latency", "abort_rate", "reentry_rate", "load_depth", "determinism_index")
+        missing = [name for name in names if name not in telemetry_map]
+        if missing:
+            # An absent reading is not a healthy one: an empty or misspelled map must not commit.
+            raise TelemetryError("telemetry is missing: " + ", ".join(missing))
         values: Dict[str, float] = {}
-        for name, default in defaults:
-            raw = telemetry_map.get(name, default)
+        for name in names:
+            raw = telemetry_map[name]
             if isinstance(raw, bool):
                 # float(True) is 1.0; a flag is not a measurement.
                 raise TelemetryError(f"telemetry {name} is not a number")

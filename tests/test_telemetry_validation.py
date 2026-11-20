@@ -73,8 +73,11 @@ def test_a_refused_nan_does_not_corrupt_later_classification(kernel, tmp_path):
     assert after == reference
 
 
-def test_missing_fields_still_default(kernel):
-    assert run(kernel, {})["transaction_status"] == "COMMITTED"
+def test_a_missing_reading_is_refused_not_read_as_healthy(kernel):
+    assert run(kernel, {})["transaction_status"] == "REJECTED"
+    for name in CALM:
+        partial = {k: v for k, v in CALM.items() if k != name}
+        assert run(kernel, partial)["transaction_status"] == "REJECTED", name
 
 
 def test_boundary_values_are_still_accepted(kernel):
