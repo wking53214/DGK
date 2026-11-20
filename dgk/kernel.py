@@ -184,8 +184,8 @@ class Kernel:
             )
 
     def _check_reading_matches(self, partition, sequence, reading) -> None:
-        """The ledger's hash rounds numbers, so a change past its precision keeps the chain intact. The signed
-        trail holds the exact reading; each reading the ledger stored for that commit must equal it."""
+        """Older ledger events were hashed with rounded numbers, so a change past the sixth place kept their chain
+        intact. The signed trail holds the exact reading; each reading the ledger stored for that commit must equal it."""
         if not isinstance(reading, dict):
             return
         stored = self.ledger_store.get_events_since(partition, sequence - 1)[0].delta
